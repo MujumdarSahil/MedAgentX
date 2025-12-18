@@ -1,12 +1,6 @@
 """API layer for MedAgentX platform."""
 
-# This layer would contain:
-# - FastAPI endpoints
-# - Agent creation APIs
-# - MCP creation APIs
-# - Workflow builder APIs
-# - Recommendation APIs
-# - Review & approval APIs
+from medagentx.api.server import app
 
-__all__ = []
+__all__ = ["app"]
 

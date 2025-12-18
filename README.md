@@ -30,13 +30,27 @@ MedAgentX is built with 7 core layers:
 # Install dependencies
 pip install -r requirements.txt
 
-# Initialize configuration
+# Initialize configuration (optional)
 cp config/config.example.yaml config/config.yaml
 # Edit config.yaml with your settings
 
-# Run the platform
-python -m medagentx.main
+# Run the web server with UI
+python run_server.py
+
+# Then open your browser to:
+# - UI: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
 ```
+
+## 🖥️ Web UI
+
+MedAgentX includes a modern web interface for:
+- Symptom analysis
+- Viewing recommendations
+- Agent management
+- Real-time clinical decision support
+
+Access the UI at `http://localhost:8000` when the server is running.
 
 ## 📚 Documentation
 

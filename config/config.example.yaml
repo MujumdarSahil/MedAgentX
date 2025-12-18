@@ -1,0 +1,84 @@
+# MedAgentX Platform Configuration
+
+# Platform Settings
+platform:
+  name: "MedAgentX"
+  version: "0.1.0"
+  environment: "development"  # development, staging, production
+  
+# LLM Configuration
+llm:
+  default_provider: "openai"  # openai, anthropic, etc.
+  default_model: "gpt-4"
+  temperature: 0.3
+  max_tokens: 2000
+  
+  # Provider-specific settings
+  openai:
+    api_key: "${OPENAI_API_KEY}"  # Set via environment variable
+    base_url: "https://api.openai.com/v1"
+  
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "https://api.anthropic.com"
+
+# Agent Configuration
+agents:
+  max_iterations: 10
+  enable_self_critique: true
+  enable_reflection: true
+  enable_planning: true
+  default_temperature: 0.3
+
+# Governance & Safety
+governance:
+  require_human_approval: true  # Mandatory for all recommendations
+  min_confidence_threshold: 0.3
+  enable_audit_logging: true
+  audit_retention_days: 365
+
+# Knowledge Base
+knowledge:
+  retrieval_strategy: "hybrid"  # dense, sparse, hybrid
+  default_top_k: 5
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Vector Store
+  vector_store:
+    type: "faiss"  # faiss, chromadb, etc.
+    index_path: "./data/vector_index"
+  
+  # Knowledge Sources
+  sources:
+    - type: "guidelines"
+      path: "./data/guidelines"
+    - type: "medical_codes"
+      path: "./data/codes"
+
+# Tools & MCP
+tools:
+  allow_user_created: true
+  default_permission: "read_only"
+  sandbox_enabled: true
+
+# API Configuration
+api:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8000
+  cors_enabled: true
+  api_key_required: false
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/medagentx.log"
+
+# Clinical Safety Disclaimer (Mandatory)
+safety:
+  disclaimer: |
+    This system provides clinical decision support, NOT autonomous diagnosis.
+    All outputs are recommendations, not final decisions.
+    Human (doctor) approval is mandatory before any diagnosis or treatment suggestion.
+

@@ -1,29 +1,17 @@
-"""
-Risk Assessment Agent.
-
-Assesses clinical risks and provides risk stratification.
-"""
-
 from typing import Any, Dict, List, Optional
+
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import (
-    AgentConfig,
-    RecommendationType,
-)
+from medagentx.core.types import AgentConfig, AgentCapabilities
 
 
-class RiskAssessmentAgent(SpecializedAgent):
-    """
-    Agent specialized in clinical risk assessment.
+class RiskAssessorAgent(SpecializedAgent):
+    """Cardiac Risk Scoring (support only) - Example doctor-created agent.
     
-    Capabilities:
-    - Risk stratification
-    - Complication risk assessment
-    - Prognosis estimation
-    - Risk factor identification
-    - Personalized risk calculations
+    This agent demonstrates how doctors can create custom agents with
+    policy-constrained capabilities. It provides risk assessment support
+    but cannot diagnose or prescribe.
     """
-    
+
     def __init__(
         self,
         config: AgentConfig,
@@ -31,77 +19,112 @@ class RiskAssessmentAgent(SpecializedAgent):
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
     ):
-        """Initialize Risk Assessment Agent."""
         if config.description == "":
-            config.description = (
-                "Assesses clinical risks and provides risk stratification. "
-                "Identifies risk factors and estimates prognosis."
-            )
-        super().__init__(config, tool_registry, governance_engine, knowledge_base)
-    
-    async def assess_risk(
-        self,
-        condition: str,
-        patient_data: Dict[str, Any],
-        risk_type: Optional[str] = None,  # e.g., "complications", "prognosis", "surgery"
-    ) -> Dict[str, Any]:
+            config.description = "Cardiac risk scoring support only; no diagnosis or treatment."
+        
+        # Define safe capabilities: no diagnosis, no prescription, requires approval
+        safe_capabilities = AgentCapabilities(
+            can_diagnose=False,
+            can_prescribe=False,
+            can_use_tools=True,
+            requires_human_approval=True,
+        )
+        
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=safe_capabilities)
+
+    async def analyze(self, input_data: Any) -> Dict[str, Any]:
         """
-        Assess clinical risk for a patient.
+        User-defined analysis: Cardiac risk scoring.
         
         Args:
-            condition: Condition or procedure
-            patient_data: Patient clinical data including risk factors
-            risk_type: Type of risk to assess
+            input_data: Patient data (age, BP, cholesterol, etc.)
             
         Returns:
-            Risk assessment results
+            Risk assessment result
         """
-        task = f"""
-        Assess clinical risk:
-        - Condition/Procedure: {condition}
-        - Patient Data: {patient_data}
-        - Risk Type: {risk_type or "General"}
+        # Extract patient data
+        if isinstance(input_data, dict):
+            age = input_data.get("age", 50)
+            systolic_bp = input_data.get("systolic_bp", 120)
+            cholesterol = input_data.get("cholesterol", 200)
+            smoker = input_data.get("smoker", False)
+            diabetes = input_data.get("diabetes", False)
+        else:
+            # Default values if input is not structured
+            age = 50
+            systolic_bp = 120
+            cholesterol = 200
+            smoker = False
+            diabetes = False
         
-        Steps:
-        1. Identify relevant risk factors
-        2. Retrieve risk assessment models/guidelines
-        3. Calculate risk scores if applicable
-        4. Provide risk stratification
-        5. Identify modifiable risk factors
-        6. Generate risk mitigation recommendations
-        """
+        # Simple risk scoring (Framingham-like)
+        risk_score = 0
+        risk_factors = []
         
-        state = await self.execute(task, context={
-            "condition": condition,
-            "patient_data": patient_data,
-            "risk_type": risk_type,
-        })
+        if age >= 65:
+            risk_score += 2
+            risk_factors.append("Age ≥ 65")
+        elif age >= 55:
+            risk_score += 1
+            risk_factors.append("Age ≥ 55")
         
-        query = f"risk assessment {condition} {risk_type or ''}"
-        knowledge = await self.retrieve_clinical_knowledge(query, top_k=5)
+        if systolic_bp >= 140:
+            risk_score += 2
+            risk_factors.append("Elevated BP")
+        elif systolic_bp >= 130:
+            risk_score += 1
+            risk_factors.append("Borderline BP")
         
-        confidence = await self.assess_confidence(
-            evidence=[item.get("content", "") for item in knowledge],
-            quality_indicators={"high_quality_source": True},
-        )
+        if cholesterol >= 240:
+            risk_score += 2
+            risk_factors.append("High cholesterol")
+        elif cholesterol >= 200:
+            risk_score += 1
+            risk_factors.append("Borderline cholesterol")
         
-        recommendation = await self.generate_recommendation(
-            recommendation_type=RecommendationType.RISK_ASSESSMENT,
-            content=f"Risk assessment for {condition}: [Generated by agent]",
-            confidence_score=confidence,
-            supporting_evidence=[item.get("content", "")[:200] for item in knowledge],
-            risks_and_warnings=[
-                "Risk assessments are estimates based on population data.",
-                "Individual patient factors may significantly alter risk.",
-                "Use clinical judgment in interpreting risk scores.",
-            ],
-        )
+        if smoker:
+            risk_score += 2
+            risk_factors.append("Smoking")
+        
+        if diabetes:
+            risk_score += 3
+            risk_factors.append("Diabetes")
+        
+        # Risk categories
+        if risk_score >= 7:
+            risk_level = "High"
+            confidence = 0.75
+        elif risk_score >= 4:
+            risk_level = "Moderate"
+            confidence = 0.65
+        else:
+            risk_level = "Low"
+            confidence = 0.70
         
         return {
-            "state": state,
-            "recommendation": recommendation,
-            "risk_score": None,
-            "risk_level": None,
-            "risk_factors": [],
+            "output": {
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "risk_factors": risk_factors,
+                "recommendation": f"Supportive risk assessment suggests {risk_level.lower()} cardiac risk. Clinical evaluation recommended.",
+                "disclaimer": "This is supportive information only. Not a diagnosis or treatment recommendation.",
+            },
+            "confidence": confidence,
+            "reasoning": f"Calculated risk score of {risk_score} based on {len(risk_factors)} identified factors.",
         }
 
+    async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Execute risk assessment using analyze method.
+        """
+        ctx = context or {}
+        input_data = ctx.get("patient_data", ctx.get("input", {}))
+        
+        # Use user-defined analyze method
+        result = await self.analyze(input_data)
+        
+        return {
+            "output": result["output"],
+            "confidence": result["confidence"],
+            "reasoning": result["reasoning"],
+        }

@@ -153,6 +153,15 @@ class AgentState(BaseModel):
 
 
 @dataclass
+class AgentCapabilities:
+    """Agent capability constraints for policy enforcement."""
+    can_diagnose: bool = False
+    can_prescribe: bool = False
+    can_use_tools: bool = True
+    requires_human_approval: bool = True
+
+
+@dataclass
 class AgentTrace:
     agent_name: str
     input: Any

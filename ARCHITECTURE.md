@@ -79,10 +79,12 @@ MedAgentX/
 - Supports RAG, CAG, and other augmentation techniques
 
 ### 4. Safety & Governance Layer
-- **GovernanceEngine**: Enforces safety rules
+- **GovernanceEngine**: Enforces safety rules and validates agent capabilities
+- **AgentCapabilities**: Policy-constrained capability model for custom agents
+- **GovernanceException**: Raised when governance policy is violated
 - **SafetyRule**: Base class for safety rules
 - **ClinicalSafetyRule**: Clinical-specific safety checks
-- **Audit Logging**: Complete audit trail
+- **Audit Logging**: Complete audit trail with capability violation tracking
 
 ### 5. Tool & MCP Layer
 - **ToolRegistry**: Tool management and execution
@@ -94,11 +96,41 @@ MedAgentX/
 - **MedAgentXPlatform**: Main platform orchestrator
 - Initializes and coordinates all components
 
+## Custom Agent Capabilities System
+
+### Overview
+The platform allows doctors/users to create custom agents safely using policy-constrained templates. All custom agents are validated against governance policies to prevent unsafe operations.
+
+### AgentCapabilities Model
+Defined in `medagentx/core/types.py`:
+- `can_diagnose: bool` - Whether agent can perform diagnosis (default: False, hard-blocked)
+- `can_prescribe: bool` - Whether agent can prescribe treatments (default: False, hard-blocked)
+- `can_use_tools: bool` - Whether agent can use tools (default: True)
+- `requires_human_approval: bool` - Whether human approval is required (default: True, cannot be disabled)
+
+### Policy Enforcement
+1. **Initialization Validation**: `GovernanceEngine.validate_agent()` checks capabilities when agent is created
+2. **Runtime Enforcement**: `BaseAgent._check_capabilities()` monitors plan/act phases for violations
+3. **Hard Blocks**: Diagnosis, prescription, and governance override attempts are blocked and audited
+
+### Custom Agent Template
+`SpecializedAgent` provides:
+- `analyze(input_data)` - User-defined analysis logic (override in custom agents)
+- Automatic capability validation on initialization and execution
+- Integration with governance engine for audit logging
+
+### Example: RiskAssessorAgent
+Demonstrates a doctor-created agent for cardiac risk scoring:
+- Safe capabilities: no diagnosis, no prescription, requires approval
+- Implements `analyze()` method for risk calculation
+- All violations are blocked and logged to audit trail
+
 ## Key Design Principles
 
-1. **Safety First**: Human approval mandatory at architecture level
-2. **Extensibility**: Users can create custom agents, tools, and MCP servers
+1. **Safety First**: Human approval mandatory at architecture level; capabilities enforced at multiple layers
+2. **Extensibility**: Users can create custom agents, tools, and MCP servers with policy constraints
 3. **Evidence-Based**: Recommendations supported by retrieved knowledge
-4. **Transparency**: Full audit logging and decision traceability
+4. **Transparency**: Full audit logging and decision traceability, including capability violations
 5. **Modularity**: Components are loosely coupled and replaceable
+6. **Policy-Constrained Customization**: Custom agents cannot bypass safety mechanisms
 

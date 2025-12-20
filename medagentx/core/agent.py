@@ -10,7 +10,9 @@ from medagentx.core.types import (
     AgentStatus,
     MessageRole,
     Recommendation,
+    AgentCapabilities,
 )
+from medagentx.governance.engine import GovernanceException
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,57 @@ class BaseAgent(ABC):
         self.state = AgentState(agent_id=config.agent_id, status=AgentStatus.IDLE)
 
     async def plan(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Check capabilities if available
+        if hasattr(self, "capabilities"):
+            self._check_capabilities("plan", task, context)
         return {"steps": ["review_input", "apply_rules", "prepare_output"], "reasoning": f"Planning for {task}"}
 
     async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Check capabilities if available
+        if hasattr(self, "capabilities"):
+            self._check_capabilities("act", plan, context)
         return {"output": {}, "confidence": 0.5, "reasoning": "Base action placeholder"}
+    
+    def _check_capabilities(self, phase: str, data: Any, context: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Check capabilities during plan/act phases.
+        Raises GovernanceException if violation detected.
+        """
+        if not hasattr(self, "capabilities"):
+            return
+        
+        capabilities: AgentCapabilities = self.capabilities
+        violations = []
+        
+        # Check for diagnosis attempts
+        if not capabilities.can_diagnose:
+            data_str = str(data).lower()
+            if any(term in data_str for term in ["diagnose", "diagnosis", "definitive diagnosis", "patient has"]):
+                violations.append(f"Diagnosis attempt detected in {phase}")
+        
+        # Check for prescription attempts
+        if not capabilities.can_prescribe:
+            data_str = str(data).lower()
+            if any(term in data_str for term in ["prescribe", "prescription", "medication", "treatment"]):
+                violations.append(f"Prescription attempt detected in {phase}")
+        
+        # Check tool usage
+        if not capabilities.can_use_tools and context:
+            if context.get("tool_calls") or context.get("tools_used"):
+                violations.append(f"Tool usage not permitted in {phase}")
+        
+        if violations:
+            violation_msg = "; ".join(violations)
+            # Log to audit trace
+            if self.governance_engine:
+                self.governance_engine.audit_log.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "event": "capability_violation",
+                    "agent_id": self.config.agent_id,
+                    "phase": phase,
+                    "violations": violations,
+                })
+            raise GovernanceException(f"Capability violation in {phase}: {violation_msg}")
 
     async def reflect(self, action_result: Dict[str, Any]) -> Dict[str, Any]:
         return {"reflection": "Human approval required before use.", "requires_human_approval": True}

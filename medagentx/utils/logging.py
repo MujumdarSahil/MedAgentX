@@ -5,7 +5,7 @@ Logging utilities.
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 def setup_logging(
@@ -51,4 +51,25 @@ def setup_logging(
         handlers=handlers,
         force=True,
     )
+
+
+def evidence_present(trace: List[Dict[str, Any]]) -> bool:
+    return any(event.get("evidence") for event in trace)
+
+
+def confidence_threshold_passed(trace: List[Dict[str, Any]], threshold: float = 0.5) -> bool:
+    confidences = [event.get("confidence") for event in trace if event.get("confidence") is not None]
+    return bool(confidences) and all(conf >= threshold for conf in confidences)
+
+
+def governance_triggered(trace: List[Dict[str, Any]]) -> bool:
+    return any(event.get("agent_name") == "governance" for event in trace)
+
+
+def evaluate_trace(trace: List[Dict[str, Any]], threshold: float = 0.5) -> Dict[str, Any]:
+    return {
+        "evidence_present": evidence_present(trace),
+        "confidence_threshold_passed": confidence_threshold_passed(trace, threshold),
+        "governance_triggered": governance_triggered(trace),
+    }
 

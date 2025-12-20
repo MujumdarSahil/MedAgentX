@@ -11,6 +11,7 @@ from medagentx.governance.engine import GovernanceEngine
 from medagentx.knowledge.knowledge_base import KnowledgeBase
 from medagentx.tools.mcp_server import ICD10MCPServer
 from medagentx.tools.tool_registry import ToolRegistry
+from medagentx.utils.logging import evaluate_trace
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -42,9 +43,17 @@ async def main() -> None:
 
     workflow = RecommendationWorkflow(workflow_id="demo_workflow", agents=agents, governance_engine=governance)
     result = await workflow.run(symptoms_text)
+    replay_result = await workflow.replay(result.get("trace", []))
+    evaluation = evaluate_trace(result.get("trace", []))
 
     print("\n--- MedAgentX Clinical Decision Support (Recommendation-Only) ---")
     pprint(result)
+    print("\n--- Trace ---")
+    pprint(result.get("trace", []))
+    print("\n--- Deterministic Replay ---")
+    pprint(replay_result)
+    print("\n--- Evaluation ---")
+    pprint(evaluation)
     print("\nDisclaimer: This is supportive information only. Human clinician approval required.")
 
 

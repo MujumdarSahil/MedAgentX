@@ -48,16 +48,27 @@ class RecommendationWorkflow:
         }
         coder_result = await coder_agent.run(coder_input["args"], context=coder_input["context"])
         codes = coder_result["output"].get("codes", [])
+        coding_disclaimer = coder_result["output"].get("disclaimer")
         self._audit("medical_coder", coder_result)
         self._append_trace("medical_coder", coder_input, coder_result)
 
         # Governance enforcement
         response = {
-            "recommendations": [
-                {"type": "support", "conditions": conditions, "codes": codes, "disclaimer": "Not a diagnosis."}
-            ],
-            "evidence": evidence,
-            "confidence": min(1.0, (sym_result["confidence"] + diag_result["confidence"]) / 2),
+            "structured_symptoms": structured_symptoms,
+            "support": {
+                "conditions": conditions,
+                "evidence": evidence,
+                "disclaimer": diag_result["output"].get("disclaimer", "Supportive reasoning only."),
+                "confidence": diag_result.get("confidence"),
+            },
+            "coding": {
+                "icd10_recommendations": codes,
+                "disclaimer": coding_disclaimer,
+                "confidence": coder_result.get("confidence"),
+            },
+            "confidence": min(
+                1.0, (sym_result["confidence"] + diag_result["confidence"] + coder_result.get("confidence", 0.0)) / 3
+            ),
             "requires_human_approval": True,
             "audit_log": self.audit_log,
         }
@@ -82,14 +93,18 @@ class RecommendationWorkflow:
         )
 
     def _append_trace(self, agent_name: str, input_payload: Any, result: Dict[str, Any]) -> None:
+        evidence_field = None
+        output_payload = result.get("output")
+        if isinstance(output_payload, dict):
+            evidence_field = output_payload.get("evidence") or output_payload.get("codes")
         self.workflow_trace.append(
             AgentTrace(
                 agent_name=agent_name,
                 input=input_payload,
                 plan=result.get("plan"),
                 tools_used=result.get("tools_used", []),
-                evidence=result.get("output", {}).get("evidence") if isinstance(result.get("output"), dict) else None,
-                output=result.get("output"),
+                evidence=evidence_field,
+                output=output_payload,
                 confidence=result.get("confidence"),
             )
         )

@@ -1,10 +1,14 @@
 """Utility functions for MedAgentX platform."""
 
-from medagentx.utils.config import load_config
-from medagentx.utils.logging import setup_logging
+try:
+    from medagentx.utils.config import load_config  # type: ignore
+except Exception:
+    load_config = None
 
-__all__ = [
-    "load_config",
-    "setup_logging",
-]
+try:
+    from medagentx.utils.logging import setup_logging  # type: ignore
+except Exception:
+    setup_logging = None
+
+__all__ = [name for name in ("load_config", "setup_logging") if globals().get(name)]
 

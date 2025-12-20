@@ -5,7 +5,7 @@ from medagentx.core.types import AgentConfig
 
 
 class MedicalCoderAgent(SpecializedAgent):
-    """Suggest ICD-10 style codes using the MCP lookup tool."""
+    """Suggest ICD-10 style codes using the governance-safe tool."""
 
     def __init__(
         self,
@@ -21,34 +21,46 @@ class MedicalCoderAgent(SpecializedAgent):
     async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         ctx = context or {}
         symptoms: List[str] = ctx.get("symptoms", [])
-        codes: List[Dict[str, Any]] = []
+        symptom_text = ", ".join(symptoms)
+        suggestions: List[Dict[str, Any]] = []
+        tools_used: List[str] = []
+
         if self.tool_registry:
             try:
-                codes = await self.tool_registry.execute_tool(
-                    tool_name="lookup_icd10",
-                    arguments={"symptoms": symptoms},
+                tools_used.append("icd10_coding")
+                suggestions = await self.tool_registry.execute_tool(
+                    tool_name="icd10_coding",
+                    arguments={"symptoms_text": symptom_text, "max_results": 5},
                 )
             except Exception:
-                codes = []
+                suggestions = []
 
         formatted = [
             {
                 "code": item.get("code"),
                 "description": item.get("description"),
-                "confidence": 0.72,
-                "justification": f"Based on symptoms: {', '.join(symptoms)}",
+                "confidence": float(item.get("confidence", 0.55)),
+                "evidence": item.get("evidence"),
+                "matched_keywords": item.get("matched_keywords", []),
             }
-            for item in codes
+            for item in suggestions
         ]
+
+        disclaimer = (
+            "ICD-10 coding suggestions only; not a diagnosis or billing decision. "
+            "Requires clinician review and approval."
+        )
 
         output = {
             "codes": formatted,
-            "note": "Suggestions only; verify with official ICD-10 guidance.",
+            "disclaimer": disclaimer,
+            "evidence": [entry.get("evidence") for entry in formatted if entry.get("evidence")],
         }
-        confidence = 0.6 if formatted else 0.4
+        confidence = max([entry["confidence"] for entry in formatted], default=0.42)
         return {
             "output": output,
             "confidence": confidence,
-            "reasoning": "Mapped symptoms to mock ICD-10 codes via MCP tool.",
+            "reasoning": "Mapped structured symptoms to ICD-10 style codes via governed tool.",
+            "tools_used": tools_used,
         }
 

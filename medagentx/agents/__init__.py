@@ -5,7 +5,7 @@ from medagentx.agents.diagnosis_support import DiagnosisSupportAgent
 from medagentx.agents.medical_coder import MedicalCoderAgent
 from medagentx.agents.prescription_reviewer import PrescriptionReviewAgent
 from medagentx.agents.clinical_guideline import ClinicalGuidelineAgent
-from medagentx.agents.risk_assessor import RiskAssessmentAgent
+from medagentx.agents.risk_assessor import RiskAssessorAgent
 
 __all__ = [
     "SymptomAnalyzerAgent",
@@ -13,6 +13,6 @@ __all__ = [
     "MedicalCoderAgent",
     "PrescriptionReviewAgent",
     "ClinicalGuidelineAgent",
-    "RiskAssessmentAgent",
+    "RiskAssessorAgent",
 ]
 

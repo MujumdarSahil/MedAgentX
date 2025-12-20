@@ -9,6 +9,8 @@ from medagentx.core.types import AgentConfig
 from medagentx.core.workflow import RecommendationWorkflow
 from medagentx.governance.engine import GovernanceEngine
 from medagentx.knowledge.knowledge_base import KnowledgeBase
+from medagentx.knowledge.medical_coding import MedicalCodingKB
+from medagentx.tools.examples import ICD10CodingTool
 from medagentx.tools.mcp_server import ICD10MCPServer
 from medagentx.tools.tool_registry import ToolRegistry
 from medagentx.utils.logging import evaluate_trace
@@ -30,10 +32,12 @@ async def main() -> None:
 
     governance = GovernanceEngine()
     knowledge = KnowledgeBase()
+    coding_kb = MedicalCodingKB()
     tool_registry = ToolRegistry()
 
     mcp_server = ICD10MCPServer()
     await tool_registry.register_mcp_server(mcp_server)
+    tool_registry.register_tool(ICD10CodingTool(coding_kb))
 
     agents = {
         "symptom_analyzer": SymptomAnalyzerAgent(agent_config("symptom_analyzer", "Symptom Analyzer"), tool_registry, governance, knowledge),
@@ -47,14 +51,18 @@ async def main() -> None:
     evaluation = evaluate_trace(result.get("trace", []))
 
     print("\n--- MedAgentX Clinical Decision Support (Recommendation-Only) ---")
-    pprint(result)
-    print("\n--- Trace ---")
+    print("Structured symptoms:", result.get("structured_symptoms"))
+    print("\nSupportive conditions:")
+    pprint(result.get("support"))
+    print("\nICD-10 recommendations:")
+    pprint(result.get("coding"))
+    print("\nTrace (tools, evidence, confidence):")
     pprint(result.get("trace", []))
-    print("\n--- Deterministic Replay ---")
+    print("\nDeterministic replay:")
     pprint(replay_result)
-    print("\n--- Evaluation ---")
+    print("\nTrace evaluation:")
     pprint(evaluation)
-    print("\nDisclaimer: This is supportive information only. Human clinician approval required.")
+    print("\nDisclaimer: This is supportive information only. Human clinician approval required. No diagnosis or billing actions performed.")
 
 
 if __name__ == "__main__":

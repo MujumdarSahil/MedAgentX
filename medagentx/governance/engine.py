@@ -17,10 +17,26 @@ class GovernanceEngine:
 
     def enforce(self, response: Dict[str, Any]) -> None:
         outputs = str(response)
-        if "treatment" in outputs.lower() or "prescribe" in outputs.lower():
-            raise ValueError("Governance block: treatment or prescriptions not allowed.")
-        if "definitive diagnosis" in outputs.lower():
-            raise ValueError("Governance block: direct diagnosis prohibited.")
+        lower_out = outputs.lower()
+        blocked_phrases = [
+            "treatment",
+            "prescribe",
+            "definitive diagnosis",
+            "final diagnosis",
+            "confirmed disease",
+            "treatment plan",
+        ]
+        for phrase in blocked_phrases:
+            if phrase in lower_out:
+                detail = f"Governance block: phrase '{phrase}' not allowed."
+                self.audit_log.append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "event": "governance_block",
+                        "reason": detail,
+                    }
+                )
+                raise ValueError(detail)
 
         response["requires_human_approval"] = True
         self.audit_log.append(

@@ -47,6 +47,6 @@ class DiagnosisSupportAgent(SpecializedAgent):
         return {
             "output": output,
             "confidence": confidence,
-            "reasoning": "Generated supportive possibilities; no final diagnosis.",
+            "reasoning": "Generated supportive possibilities without diagnostic conclusion.",
         }
 

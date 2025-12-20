@@ -25,11 +25,14 @@ class BaseAgent(ABC):
         config: AgentConfig,
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
+        llm_engine: Optional[Any] = None,
     ):
         self.config = config
         self.tool_registry = tool_registry
         self.governance_engine = governance_engine
+        self.llm_engine = llm_engine  # Optional LLM engine
         self.state = AgentState(agent_id=config.agent_id, status=AgentStatus.IDLE)
+        self._last_llm_usage: Optional[Dict[str, Any]] = None  # Track LLM usage for trace
 
     async def plan(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # Check capabilities if available
@@ -90,6 +93,7 @@ class BaseAgent(ABC):
     async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         self.state.status = AgentStatus.THINKING
         self.state.current_task = task
+        self._last_llm_usage = None  # Reset LLM usage tracking
         self.state.messages.append(
             AgentMessage(role=MessageRole.USER, content=task, metadata=context or {})
         )
@@ -110,6 +114,7 @@ class BaseAgent(ABC):
                 {"step": "act", "detail": action_result},
                 {"step": "reflect", "detail": reflection},
             ],
+            "llm_usage": self._last_llm_usage,  # Include LLM usage metadata
         }
 
         self.state.status = AgentStatus.COMPLETED
@@ -117,11 +122,15 @@ class BaseAgent(ABC):
             AgentMessage(
                 role=MessageRole.AGENT,
                 content=str(output.get("output")),
-                metadata={"confidence": output["confidence"]},
+                metadata={"confidence": output["confidence"], "llm_usage": self._last_llm_usage},
             )
         )
         self.state.last_updated = datetime.now()
         return output
+    
+    def get_last_llm_usage(self) -> Optional[Dict[str, Any]]:
+        """Get last LLM usage metadata for trace."""
+        return self._last_llm_usage
 
     def add_recommendation(self, recommendation: Recommendation) -> None:
         self.state.recommendations.append(recommendation)

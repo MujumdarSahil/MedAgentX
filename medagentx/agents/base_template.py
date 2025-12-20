@@ -39,6 +39,7 @@ class SpecializedAgent(BaseAgent):
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
         capabilities: Optional[AgentCapabilities] = None,
+        llm_engine: Optional[Any] = None,
     ):
         """
         Initialize specialized agent.
@@ -49,8 +50,9 @@ class SpecializedAgent(BaseAgent):
             governance_engine: Governance engine
             knowledge_base: Knowledge base for retrieval
             capabilities: Agent capabilities (defaults to safe restrictions)
+            llm_engine: Optional LLM engine for reasoning
         """
-        super().__init__(config, tool_registry, governance_engine)
+        super().__init__(config, tool_registry, governance_engine, llm_engine)
         self.knowledge_base = knowledge_base
         self.capabilities = capabilities or AgentCapabilities()
         

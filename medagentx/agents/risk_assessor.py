@@ -17,6 +17,7 @@ class RiskScorerAgent(SpecializedAgent):
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        llm_engine: Optional[Any] = None,
     ):
         if config.description == "":
             config.description = "Numeric risk scoring support only; no diagnosis or treatment."
@@ -29,7 +30,7 @@ class RiskScorerAgent(SpecializedAgent):
             requires_human_approval=True,
         )
         
-        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=safe_capabilities)
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=safe_capabilities, llm_engine=llm_engine)
 
     async def analyze(self, input_data: Any) -> Dict[str, Any]:
         """

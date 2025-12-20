@@ -185,7 +185,13 @@ class RecommendationWorkflow:
         if isinstance(output_payload, dict):
             evidence_field = output_payload.get("evidence") or output_payload.get("codes")
         
-        # Create trace with optional visualization metadata
+        # Get LLM usage from agent if available
+        llm_usage = result.get("llm_usage")
+        agent = self.agents.get(agent_name)
+        if agent and hasattr(agent, "get_last_llm_usage"):
+            llm_usage = agent.get_last_llm_usage() or llm_usage
+        
+        # Create trace with optional visualization metadata and LLM usage
         trace = AgentTrace(
             agent_name=agent_name,
             input=input_payload,
@@ -195,6 +201,7 @@ class RecommendationWorkflow:
             output=output_payload,
             confidence=result.get("confidence"),
             visualization_metadata=visualization_metadata,
+            llm_usage=llm_usage,
         )
         
         self.workflow_trace.append(trace)

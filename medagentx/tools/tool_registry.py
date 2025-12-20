@@ -31,6 +31,13 @@ class ToolRegistry:
         self._tools: Dict[str, BaseTool] = {}
         self._tool_permissions: Dict[str, Dict[str, ToolPermission]] = {}  # agent_id -> tool_id -> permission
         self._usage_log: List[Dict[str, Any]] = []
+
+    async def register_mcp_server(self, server: Any) -> None:
+        """Register all tools exposed by an MCP server."""
+        if hasattr(server, "initialize"):
+            await server.initialize()
+        for tool in getattr(server, "_tools", {}).values():
+            self.register_tool(tool)
     
     def register_tool(
         self,

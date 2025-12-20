@@ -1,98 +1,51 @@
-"""
-Main entry point for MedAgentX platform.
-
-Initializes and runs the platform.
-"""
-
 import asyncio
 import logging
-from typing import Optional
+from pprint import pprint
 
+from medagentx.agents.symptom_analyzer import SymptomAnalyzerAgent
+from medagentx.agents.diagnosis_support import DiagnosisSupportAgent
+from medagentx.agents.medical_coder import MedicalCoderAgent
 from medagentx.core.types import AgentConfig
-from medagentx.core.agent import BaseAgent
-from medagentx.tools.tool_registry import ToolRegistry
+from medagentx.core.workflow import RecommendationWorkflow
 from medagentx.governance.engine import GovernanceEngine
 from medagentx.knowledge.knowledge_base import KnowledgeBase
+from medagentx.tools.mcp_server import ICD10MCPServer
+from medagentx.tools.tool_registry import ToolRegistry
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-class MedAgentXPlatform:
-    """
-    Main platform class for MedAgentX.
-    
-    Orchestrates all platform components:
-    - Agent management
-    - Tool registry
-    - Governance engine
-    - Knowledge base
-    """
-    
-    def __init__(self):
-        """Initialize the MedAgentX platform."""
-        logger.info("Initializing MedAgentX Platform...")
-        
-        # Initialize core components
-        self.tool_registry = ToolRegistry()
-        self.governance_engine = GovernanceEngine()
-        self.knowledge_base = KnowledgeBase()
-        
-        # Agent registry
-        self.agents: dict[str, BaseAgent] = {}
-        
-        logger.info("MedAgentX Platform initialized")
-    
-    def register_agent(self, agent: BaseAgent) -> None:
-        """
-        Register an agent with the platform.
-        
-        Args:
-            agent: Agent instance to register
-        """
-        self.agents[agent.config.agent_id] = agent
-        logger.info(f"Registered agent: {agent.config.agent_id}")
-    
-    def get_agent(self, agent_id: str) -> Optional[BaseAgent]:
-        """
-        Get an agent by ID.
-        
-        Args:
-            agent_id: Agent ID
-            
-        Returns:
-            Agent instance or None
-        """
-        return self.agents.get(agent_id)
-    
-    async def shutdown(self) -> None:
-        """Shutdown the platform."""
-        logger.info("Shutting down MedAgentX Platform...")
-        # Cleanup logic here
+def agent_config(agent_id: str, name: str) -> AgentConfig:
+    return AgentConfig(
+        agent_id=agent_id,
+        agent_name=name,
+        description="",
+        created_by="system",
+    )
 
 
-async def main():
-    """Main entry point."""
-    logger.info("=" * 60)
-    logger.info("🧠 MedAgentX (E-Doctor OS) Platform")
-    logger.info("=" * 60)
-    
-    # Initialize platform
-    platform = MedAgentXPlatform()
-    
-    # Platform is now ready for use
-    logger.info("Platform ready. Use the API or CLI to interact with agents.")
-    
-    # Keep running (in production, this would start a server)
-    try:
-        await asyncio.Event().wait()  # Wait indefinitely
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        await platform.shutdown()
+async def main() -> None:
+    symptoms_text = "fever, cough for three days"
+
+    governance = GovernanceEngine()
+    knowledge = KnowledgeBase()
+    tool_registry = ToolRegistry()
+
+    mcp_server = ICD10MCPServer()
+    await tool_registry.register_mcp_server(mcp_server)
+
+    agents = {
+        "symptom_analyzer": SymptomAnalyzerAgent(agent_config("symptom_analyzer", "Symptom Analyzer"), tool_registry, governance, knowledge),
+        "diagnosis_support": DiagnosisSupportAgent(agent_config("diagnosis_support", "Diagnosis Support"), tool_registry, governance, knowledge),
+        "medical_coder": MedicalCoderAgent(agent_config("medical_coder", "Medical Coder"), tool_registry, governance, knowledge),
+    }
+
+    workflow = RecommendationWorkflow(workflow_id="demo_workflow", agents=agents, governance_engine=governance)
+    result = await workflow.run(symptoms_text)
+
+    print("\n--- MedAgentX Clinical Decision Support (Recommendation-Only) ---")
+    pprint(result)
+    print("\nDisclaimer: This is supportive information only. Human clinician approval required.")
 
 
 if __name__ == "__main__":

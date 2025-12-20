@@ -1,4 +1,4 @@
-# MedAgentX Platform Architecture
+# MedAgentX Platform Architecture v1.7
 
 ## Project Structure
 
@@ -11,7 +11,11 @@ MedAgentX/
 │   │   ├── __init__.py
 │   │   ├── agent.py        # Base Agent class
 │   │   ├── types.py        # Type definitions
-│   │   └── workflow.py     # Workflow engine
+│   │   ├── workflow.py     # Workflow engine
+│   │   ├── recommendation_engine.py  # RecommendationEngine abstraction (v1.7)
+│   │   ├── prediction_model.py       # PredictionModel abstraction (v1.7)
+│   │   ├── mcp_registry.py           # Extended MCP registry (v1.7)
+│   │   └── squad.py                  # Squad execution model (v1.7)
 │   ├── agents/             # Agent templates
 │   │   ├── __init__.py
 │   │   ├── base_template.py
@@ -35,8 +39,9 @@ MedAgentX/
 │   │   ├── __init__.py
 │   │   ├── knowledge_base.py
 │   │   └── retrieval.py
-│   ├── models/             # Model layer (conceptual)
-│   │   └── __init__.py
+│   ├── models/             # LLM model layer
+│   │   ├── __init__.py
+│   │   └── llm_engine.py   # Multi-LLM orchestration (v1.7)
 │   ├── api/                # API layer (future)
 │   │   └── __init__.py
 │   └── utils/              # Utilities
@@ -69,6 +74,9 @@ MedAgentX/
 
 ### 2. Clinical Intelligence Layer
 - **RecommendationWorkflow**: Orchestrates multi-agent workflows
+- **RecommendationEngines**: Governed recommendation generation (v1.7)
+- **PredictionModels**: Governed prediction generation (v1.7)
+- **SquadExecutor**: Governed multi-agent task execution (v1.7)
 - **Recommendation Types**: Structured recommendation outputs
 - **Human Approval Gates**: Mandatory approval workflow
 
@@ -88,11 +96,18 @@ MedAgentX/
 
 ### 5. Tool & MCP Layer
 - **ToolRegistry**: Tool management and execution
+- **MCPRegistry**: Extended registry for Agents, Tools, Engines, Models, Squads (v1.7)
 - **BaseTool**: Foundation for tools
 - **MCPServer**: MCP protocol implementation
 - **UserMCPServer**: Base for user-created servers
 
-### 6. Platform Layer
+### 6. LLM Orchestration Layer (v1.7)
+- **LLMEngine**: Abstract interface for LLM providers
+- **Multi-Provider Support**: OpenAI, Groq, Ollama, Anthropic, Google Gemini, Mistral, Cohere, Perplexity
+- **LLMEngineFactory**: Factory for creating LLM engines
+- **LLM Usage Tracking**: All LLM calls logged with provider, model, purpose, token usage
+
+### 7. Platform Layer
 - **MedAgentXPlatform**: Main platform orchestrator
 - Initializes and coordinates all components
 
@@ -128,9 +143,39 @@ Demonstrates a doctor-created agent for cardiac risk scoring:
 ## Key Design Principles
 
 1. **Safety First**: Human approval mandatory at architecture level; capabilities enforced at multiple layers
-2. **Extensibility**: Users can create custom agents, tools, and MCP servers with policy constraints
+2. **Extensibility**: Users can create custom agents, tools, engines, models, and squads with policy constraints
 3. **Evidence-Based**: Recommendations supported by retrieved knowledge
-4. **Transparency**: Full audit logging and decision traceability, including capability violations
+4. **Transparency**: Full audit logging and decision traceability, including capability violations and LLM usage
 5. **Modularity**: Components are loosely coupled and replaceable
 6. **Policy-Constrained Customization**: Custom agents cannot bypass safety mechanisms
+7. **Multi-LLM Support**: Optional LLM assistance with multiple provider adapters (v1.7)
+8. **Governed Execution**: Static execution graphs with no loops, no autonomy, no improvisation (v1.7)
+
+## v1.7 New Features
+
+### Multi-LLM Orchestration
+- Support for 8+ LLM providers as interchangeable adapters
+- All LLM calls logged with provider, model, purpose, and token usage
+- LLMs are optional and assistive only (never decision authorities)
+
+### Recommendation Engines
+- Governed interface for clinical recommendation generation
+- Deterministic and LLM-backed implementations
+- MUST NOT emit diagnosis or treatment
+
+### Prediction Models
+- Governed interface for clinical prediction generation
+- Deterministic and ML-backed implementations
+- MUST NOT emit diagnosis or treatment
+
+### Extended MCP Registry
+- Unified registry for Agents, Tools, Engines, Models, and Squads
+- Metadata validation prevents unsafe registrations
+- Discovery and execution coordination
+
+### Governed Squad Execution
+- Static execution graphs (no loops)
+- Explicit roles and fixed instructions
+- Deterministic execution order
+- Governance checks at every step
 

@@ -51,6 +51,19 @@ from medagentx.models.llm_engine import (
     LLMProvider,
     LLMEngine,
 )
+from medagentx.core.recommendation_engine import (
+    RecommendationEngine,
+    DeterministicRecommendationEngine,
+    LLMBackedRecommendationEngine,
+)
+from medagentx.core.mcp_registry import MCPEntityMetadata
+from medagentx.core.prediction_model import (
+    PredictionModel,
+    DeterministicPredictionModel,
+    MLBackedPredictionModel,
+)
+from medagentx.core.mcp_registry import MCPRegistry
+from medagentx.core.squad import SquadStep, SquadExecutor
 
 
 # Page configuration
@@ -76,6 +89,14 @@ if "llm_configs" not in st.session_state:
     st.session_state.llm_configs = {}  # Agent ID -> LLM config
 if "llm_engines" not in st.session_state:
     st.session_state.llm_engines = {}  # Provider -> LLM engine instance
+if "engines" not in st.session_state:
+    st.session_state.engines = {}  # Engine ID -> RecommendationEngine
+if "models" not in st.session_state:
+    st.session_state.models = {}  # Model ID -> PredictionModel
+if "mcp_registry" not in st.session_state:
+    st.session_state.mcp_registry = None
+if "squads" not in st.session_state:
+    st.session_state.squads = {}  # Squad ID -> Squad definition
 
 
 def get_llm_engine_for_agent(agent_id: str) -> Optional[LLMEngine]:
@@ -204,12 +225,12 @@ def run_async(coro):
 
 
 # Sidebar navigation
-st.sidebar.title("🏥 MedAgentX v1.6")
-st.sidebar.markdown("**Clinical Decision Support Platform**")
+st.sidebar.title("🏥 MedAgentX v1.7")
+st.sidebar.markdown("**Clinical Intelligence Platform**")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Symptom Analysis", "LLM Configuration", "Agents", "Tools", "Workflows", "Audit Logs"],
+    ["Dashboard", "Symptom Analysis", "LLM Configuration", "Agents", "Tools", "Engines", "Models", "Workflow Builder", "Workflows", "Audit Logs"],
 )
 
 # Initialize system
@@ -218,7 +239,7 @@ initialize_system()
 # Dashboard
 if page == "Dashboard":
     st.title("📊 Dashboard")
-    st.markdown("### Welcome to MedAgentX v1.6")
+    st.markdown("### Welcome to MedAgentX v1.7")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -433,11 +454,15 @@ elif page == "LLM Configuration":
     available_providers = LLMEngineFactory.get_available_providers()
     
     provider_status = {}
-    for provider in [LLMProvider.OPENAI, LLMProvider.GROQ, LLMProvider.OLLAMA, LLMProvider.NONE]:
+    for provider in [
+        LLMProvider.OPENAI, LLMProvider.GROQ, LLMProvider.OLLAMA,
+        LLMProvider.ANTHROPIC, LLMProvider.GOOGLE, LLMProvider.MISTRAL,
+        LLMProvider.COHERE, LLMProvider.PERPLEXITY, LLMProvider.NONE
+    ]:
         is_available = provider in available_providers
         provider_status[provider.value] = is_available
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("OpenAI", "✅" if provider_status.get("openai") else "❌")
     with col2:
@@ -445,6 +470,18 @@ elif page == "LLM Configuration":
     with col3:
         st.metric("Ollama", "✅" if provider_status.get("ollama") else "❌")
     with col4:
+        st.metric("Anthropic", "✅" if provider_status.get("anthropic") else "❌")
+    with col5:
+        st.metric("Google", "✅" if provider_status.get("google") else "❌")
+    
+    col6, col7, col8, col9 = st.columns(4)
+    with col6:
+        st.metric("Mistral", "✅" if provider_status.get("mistral") else "❌")
+    with col7:
+        st.metric("Cohere", "✅" if provider_status.get("cohere") else "❌")
+    with col8:
+        st.metric("Perplexity", "✅" if provider_status.get("perplexity") else "❌")
+    with col9:
         st.metric("None (Default)", "✅ Always")
     
     st.markdown("---")
@@ -490,6 +527,36 @@ elif page == "LLM Configuration":
                         "Ollama Base URL",
                         value=current_config.get("base_url", "http://localhost:11434"),
                         key=f"ollama_url_{agent_id}",
+                    )
+                elif selected_provider == "anthropic":
+                    model_name = st.text_input(
+                        "Model Name",
+                        value=model_name or "claude-3-5-sonnet-20241022",
+                        key=f"llm_model_{agent_id}",
+                    )
+                elif selected_provider == "google":
+                    model_name = st.text_input(
+                        "Model Name",
+                        value=model_name or "gemini-1.5-pro",
+                        key=f"llm_model_{agent_id}",
+                    )
+                elif selected_provider == "mistral":
+                    model_name = st.text_input(
+                        "Model Name",
+                        value=model_name or "mistral-large-latest",
+                        key=f"llm_model_{agent_id}",
+                    )
+                elif selected_provider == "cohere":
+                    model_name = st.text_input(
+                        "Model Name",
+                        value=model_name or "command-r-plus",
+                        key=f"llm_model_{agent_id}",
+                    )
+                elif selected_provider == "perplexity":
+                    model_name = st.text_input(
+                        "Model Name",
+                        value=model_name or "pplx-70b-online",
+                        key=f"llm_model_{agent_id}",
                     )
                 
                 if st.button(f"Apply Configuration", key=f"apply_{agent_id}"):
@@ -750,6 +817,332 @@ elif page == "Tools":
         if st.form_submit_button("Create Tool"):
             st.info("Tool creation feature - placeholder for future implementation")
 
+# Engines
+elif page == "Engines":
+    st.title("🔧 Recommendation Engines")
+    st.markdown("### Governed Clinical Recommendation Engines")
+    st.info("ℹ️ **Engines provide insights and risk modifiers. They do NOT emit diagnosis or treatment.**")
+    
+    # Initialize MCP registry if needed
+    if st.session_state.mcp_registry is None:
+        st.session_state.mcp_registry = MCPRegistry()
+    
+    mcp_registry = st.session_state.mcp_registry
+    engines = st.session_state.engines
+    
+    st.markdown("### Registered Engines")
+    if engines:
+        for engine_id, engine in engines.items():
+            with st.expander(f"**{engine_id}** - {engine.name}"):
+                st.markdown(f"**Description**: {engine.description}")
+                st.markdown(f"**Purpose**: {engine.purpose}")
+                st.markdown(f"**Scope**: {engine.scope}")
+                st.markdown(f"**Available**: {'✅' if engine.is_available() else '❌'}")
+                st.markdown(f"**Allowed Outputs**: {', '.join(engine.allowed_outputs)}")
+                
+                # Execute engine
+                st.markdown("#### Execute Engine")
+                with st.form(f"execute_engine_{engine_id}"):
+                    clinical_context = st.text_area(
+                        "Clinical Context (JSON)",
+                        value='{"symptoms": ["fever", "cough"], "patient_data": {}}',
+                        height=100,
+                        key=f"engine_context_{engine_id}",
+                    )
+                    if st.form_submit_button("Execute"):
+                        try:
+                            import json
+                            context_dict = json.loads(clinical_context)
+                            result = run_async(engine.recommend(context_dict))
+                            
+                            st.markdown("#### Engine Output")
+                            st.json({
+                                "insights": result.insights,
+                                "risk_modifiers": result.risk_modifiers,
+                                "evidence": result.evidence,
+                                "confidence": result.confidence,
+                                "human_approval_required": result.human_approval_required,
+                            })
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+    else:
+        st.info("No engines registered yet.")
+    
+    st.markdown("---")
+    st.markdown("### Register New Engine")
+    with st.form("register_engine_form"):
+        engine_id = st.text_input("Engine ID")
+        engine_name = st.text_input("Engine Name")
+        description = st.text_area("Description")
+        purpose = st.text_input("Purpose")
+        scope = st.text_input("Scope")
+        allowed_outputs = st.text_input("Allowed Outputs (comma-separated)", value="insights,risk_modifiers,evidence")
+        engine_type = st.selectbox("Engine Type", ["deterministic", "llm_backed"])
+        
+        if st.form_submit_button("Register Engine"):
+            try:
+                allowed_list = [o.strip() for o in allowed_outputs.split(",")]
+                
+                metadata = MCPEntityMetadata(
+                    entity_id=engine_id,
+                    entity_type="engine",
+                    name=engine_name,
+                    description=description,
+                    purpose=purpose,
+                    scope=scope,
+                    allowed_outputs=allowed_list,
+                    governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                    created_by="user",
+                )
+                
+                if engine_type == "deterministic":
+                    engine = DeterministicRecommendationEngine(
+                        engine_id=engine_id,
+                        name=engine_name,
+                        description=description,
+                        purpose=purpose,
+                        scope=scope,
+                        allowed_outputs=allowed_list,
+                        governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                    )
+                else:
+                    llm_engine = None
+                    if st.session_state.llm_engines:
+                        llm_key = list(st.session_state.llm_engines.keys())[0]
+                        llm_engine = st.session_state.llm_engines[llm_key]
+                    
+                    engine = LLMBackedRecommendationEngine(
+                        engine_id=engine_id,
+                        name=engine_name,
+                        description=description,
+                        purpose=purpose,
+                        scope=scope,
+                        allowed_outputs=allowed_list,
+                        governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                        llm_engine=llm_engine,
+                    )
+                
+                mcp_registry.register_engine(engine, metadata)
+                engines[engine_id] = engine
+                st.session_state.engines = engines
+                st.success(f"✅ Engine '{engine_id}' registered successfully!")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                st.exception(e)
+
+# Models
+elif page == "Models":
+    st.title("📊 Prediction Models")
+    st.markdown("### Governed Clinical Prediction Models")
+    st.info("ℹ️ **Models provide probability estimates. They do NOT emit diagnosis or treatment.**")
+    
+    # Initialize MCP registry if needed
+    if st.session_state.mcp_registry is None:
+        st.session_state.mcp_registry = MCPRegistry()
+    
+    mcp_registry = st.session_state.mcp_registry
+    models = st.session_state.models
+    
+    st.markdown("### Registered Models")
+    if models:
+        for model_id, model in models.items():
+            with st.expander(f"**{model_id}** - {model.name}"):
+                st.markdown(f"**Description**: {model.description}")
+                st.markdown(f"**Purpose**: {model.purpose}")
+                st.markdown(f"**Scope**: {model.scope}")
+                st.markdown(f"**Available**: {'✅' if model.is_available() else '❌'}")
+                st.markdown(f"**Allowed Outputs**: {', '.join(model.allowed_outputs)}")
+                
+                # Execute model
+                st.markdown("#### Execute Model")
+                with st.form(f"execute_model_{model_id}"):
+                    features = st.text_area(
+                        "Features (JSON)",
+                        value='{"symptom_count": 2, "condition_count": 1, "risk_score": 45}',
+                        height=100,
+                        key=f"model_features_{model_id}",
+                    )
+                    if st.form_submit_button("Execute"):
+                        try:
+                            import json
+                            features_dict = json.loads(features)
+                            result = run_async(model.predict(features_dict))
+                            
+                            st.markdown("#### Model Output")
+                            st.json({
+                                "probability": result.probability,
+                                "confidence": result.confidence,
+                                "explanation": result.explanation,
+                                "evidence": result.evidence,
+                                "human_approval_required": result.human_approval_required,
+                            })
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+    else:
+        st.info("No models registered yet.")
+    
+    st.markdown("---")
+    st.markdown("### Register New Model")
+    with st.form("register_model_form"):
+        model_id = st.text_input("Model ID")
+        model_name = st.text_input("Model Name")
+        description = st.text_area("Description")
+        purpose = st.text_input("Purpose")
+        scope = st.text_input("Scope")
+        allowed_outputs = st.text_input("Allowed Outputs (comma-separated)", value="probability,confidence,explanation")
+        model_type = st.selectbox("Model Type", ["deterministic", "ml_backed"])
+        
+        if st.form_submit_button("Register Model"):
+            try:
+                allowed_list = [o.strip() for o in allowed_outputs.split(",")]
+                
+                metadata = MCPEntityMetadata(
+                    entity_id=model_id,
+                    entity_type="model",
+                    name=model_name,
+                    description=description,
+                    purpose=purpose,
+                    scope=scope,
+                    allowed_outputs=allowed_list,
+                    governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                    created_by="user",
+                )
+                
+                if model_type == "deterministic":
+                    model = DeterministicPredictionModel(
+                        model_id=model_id,
+                        name=model_name,
+                        description=description,
+                        purpose=purpose,
+                        scope=scope,
+                        allowed_outputs=allowed_list,
+                        governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                    )
+                else:
+                    model = MLBackedPredictionModel(
+                        model_id=model_id,
+                        name=model_name,
+                        description=description,
+                        purpose=purpose,
+                        scope=scope,
+                        allowed_outputs=allowed_list,
+                        governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                        ml_model=None,  # Placeholder - would integrate actual ML model
+                    )
+                
+                mcp_registry.register_model(model, metadata)
+                models[model_id] = model
+                st.session_state.models = models
+                st.success(f"✅ Model '{model_id}' registered successfully!")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                st.exception(e)
+
+# Workflow Builder
+elif page == "Workflow Builder":
+    st.title("🔨 Workflow Builder")
+    st.markdown("### Assemble Agents → Engines → Models")
+    st.info("ℹ️ **Build governed workflows with explicit execution graphs.**")
+    
+    # Initialize MCP registry if needed
+    if st.session_state.mcp_registry is None:
+        st.session_state.mcp_registry = MCPRegistry()
+    
+    mcp_registry = st.session_state.mcp_registry
+    
+    st.markdown("### Create Squad Workflow")
+    with st.form("create_squad_form"):
+        squad_id = st.text_input("Squad ID")
+        squad_name = st.text_input("Squad Name")
+        description = st.text_area("Description")
+        
+        st.markdown("#### Execution Graph")
+        st.info("Define execution steps (no loops allowed)")
+        
+        num_steps = st.number_input("Number of Steps", min_value=1, max_value=10, value=3)
+        
+        steps = []
+        for i in range(num_steps):
+            with st.expander(f"Step {i+1}"):
+                step_id = st.text_input(f"Step ID", value=f"step_{i+1}", key=f"step_id_{i}")
+                step_type = st.selectbox(f"Step Type", ["agent", "engine", "model"], key=f"step_type_{i}")
+                entity_id = st.text_input(f"Entity ID", key=f"entity_id_{i}")
+                role = st.text_input(f"Role", key=f"role_{i}")
+                instructions = st.text_area(f"Instructions", key=f"instructions_{i}")
+                dependencies = st.text_input(f"Dependencies (comma-separated)", key=f"deps_{i}")
+                
+                steps.append({
+                    "step_id": step_id,
+                    "step_type": step_type,
+                    "entity_id": entity_id,
+                    "role": role,
+                    "instructions": instructions,
+                    "dependencies": [d.strip() for d in dependencies.split(",") if d.strip()],
+                })
+        
+        if st.form_submit_button("Create Squad"):
+            try:
+                execution_graph = steps
+                
+                metadata = MCPEntityMetadata(
+                    entity_id=squad_id,
+                    entity_type="squad",
+                    name=squad_name,
+                    description=description,
+                    purpose="multi_agent_workflow",
+                    scope="clinical_analysis",
+                    allowed_outputs=["insights", "predictions", "recommendations"],
+                    governance_constraints={"no_diagnosis": True, "no_treatment": True},
+                    created_by="user",
+                )
+                
+                squad_definition = {
+                    "execution_graph": execution_graph,
+                }
+                
+                mcp_registry.register_squad(squad_id, squad_definition, metadata)
+                st.session_state.squads[squad_id] = squad_definition
+                st.success(f"✅ Squad '{squad_id}' created successfully!")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                st.exception(e)
+    
+    st.markdown("---")
+    st.markdown("### Execute Squad")
+    if st.session_state.squads:
+        squad_id = st.selectbox("Select Squad", list(st.session_state.squads.keys()))
+        
+        with st.form("execute_squad_form"):
+            initial_context = st.text_area(
+                "Initial Context (JSON)",
+                value='{"symptoms": ["fever", "cough"], "patient_data": {}}',
+                height=100,
+            )
+            
+            if st.form_submit_button("Execute Squad"):
+                try:
+                    import json
+                    context_dict = json.loads(initial_context)
+                    
+                    # Get workflow
+                    workflow = st.session_state.workflow
+                    if workflow:
+                        result = run_async(workflow.run_squad(squad_id, context_dict))
+                        
+                        st.markdown("#### Squad Execution Result")
+                        st.json(result)
+                        
+                        st.markdown("#### Execution Trace")
+                        trace = result.get("trace", [])
+                        st.json(trace)
+                    else:
+                        st.error("Workflow not initialized. Please visit Dashboard first.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                    st.exception(e)
+    else:
+        st.info("No squads created yet.")
+
 # Workflows
 elif page == "Workflows":
     st.title("⚙️ Workflows")
@@ -840,8 +1233,8 @@ elif page == "Audit Logs":
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("**MedAgentX v1.6**")
-st.sidebar.markdown("Clinical Decision Support")
+st.sidebar.markdown("**MedAgentX v1.7**")
+st.sidebar.markdown("Clinical Intelligence Platform")
 st.sidebar.markdown("⚠️ All outputs require human approval")
 st.sidebar.markdown("🤖 LLMs assist reasoning only")
 

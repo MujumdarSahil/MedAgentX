@@ -1,4 +1,4 @@
-# Core Research Contribution
+# Core Research Contribution - MedAgentX v1.7
 
 ## Problem Statement
 
@@ -31,9 +31,21 @@ Existing systems lack architectural mechanisms to enforce safety:
 - **No Mandatory Human Approval Gates**: Human oversight is optional or can be bypassed
 - **No Deterministic Governance**: Governance rules are applied inconsistently or can be circumvented
 
-## Core Contribution of MedAgentX
+## Core Contribution of MedAgentX v1.7
 
-MedAgentX introduces an **architecture-first approach to clinical AI safety** through three interconnected innovations:
+MedAgentX v1.7 introduces an **architecture-first approach to clinical AI safety** through multiple interconnected innovations:
+
+### v1.7 Extensions
+
+**Multi-LLM Orchestration**: Extended LLM abstraction layer supports 8+ providers (Anthropic, Google Gemini, Mistral, Cohere, Perplexity) as interchangeable adapters. All LLM calls are logged with provider, model, purpose, and token usage. LLMs remain optional and assistive only.
+
+**Recommendation & Prediction Abstractions**: New governed base interfaces (`RecommendationEngine`, `PredictionModel`) provide structured clinical intelligence without diagnosis or treatment. Both support deterministic and optional LLM/ML-backed implementations.
+
+**Extended MCP Registry**: Unified registry supports Agents, Tools, RecommendationEngines, PredictionModels, and Squads. All entities declare metadata (purpose, scope, allowed_outputs, governance_constraints) and undergo validation to prevent unsafe registrations.
+
+**Governed Squad Execution**: Static execution graphs with explicit roles, fixed instructions, and deterministic execution order. No loops, no autonomy, no improvisation. Governance checks at every step.
+
+### Original Innovations (v1.6)
 
 ### 1. Policy-Constrained Agent Capabilities
 

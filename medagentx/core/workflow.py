@@ -3,15 +3,38 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from medagentx.core.types import AgentTrace
+from medagentx.core.recommendation_engine import RecommendationEngine, RecommendationOutput
+from medagentx.core.prediction_model import PredictionModel, PredictionOutput
+from medagentx.core.mcp_registry import MCPRegistry
+from medagentx.core.squad import SquadExecutor, SquadStep
 
 
 class RecommendationWorkflow:
-    """Sequential workflow: symptoms -> support -> coding -> governance."""
+    """
+    Sequential workflow: symptoms -> support -> coding -> governance.
+    
+    Extended in v1.7 to support:
+    - Agents → RecommendationEngines → PredictionModels chaining
+    - Squad execution integration
+    - Enhanced confidence aggregation
+    - Visualization-ready JSON execution traces
+    """
 
-    def __init__(self, workflow_id: str, agents: Dict[str, Any], governance_engine: Any):
+    def __init__(
+        self,
+        workflow_id: str,
+        agents: Dict[str, Any],
+        governance_engine: Any,
+        engines: Optional[Dict[str, RecommendationEngine]] = None,
+        models: Optional[Dict[str, PredictionModel]] = None,
+        mcp_registry: Optional[MCPRegistry] = None,
+    ):
         self.workflow_id = workflow_id
         self.agents = agents
+        self.engines = engines or {}
+        self.models = models or {}
         self.governance_engine = governance_engine
+        self.mcp_registry = mcp_registry
         self.audit_log: List[Dict[str, Any]] = []
         self.workflow_trace: List[AgentTrace] = []
 
@@ -163,6 +186,191 @@ class RecommendationWorkflow:
         # Convert traces to dicts for JSON serialization
         response["trace"] = [asdict(event) for event in self.workflow_trace]
         return response
+    
+    async def run_extended(
+        self,
+        symptoms_text: str,
+        use_engines: bool = False,
+        use_models: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Extended workflow execution with optional engines and models.
+        
+        Args:
+            symptoms_text: Input symptoms text
+            use_engines: Whether to use recommendation engines
+            use_models: Whether to use prediction models
+            
+        Returns:
+            Extended workflow result with engines and models outputs
+        """
+        # Run base workflow
+        base_result = await self.run(symptoms_text)
+        
+        # Add engines if available
+        if use_engines and self.engines:
+            engine_outputs = {}
+            for engine_id, engine in self.engines.items():
+                if engine.is_available():
+                    try:
+                        clinical_context = {
+                            "symptoms": base_result.get("structured_symptoms", []),
+                            "conditions": base_result.get("support", {}).get("conditions", []),
+                            "patient_data": {"symptoms": base_result.get("structured_symptoms", [])},
+                        }
+                        engine_result = await engine.recommend(clinical_context)
+                        engine_outputs[engine_id] = {
+                            "insights": engine_result.insights,
+                            "risk_modifiers": engine_result.risk_modifiers,
+                            "evidence": engine_result.evidence,
+                            "confidence": engine_result.confidence,
+                            "human_approval_required": engine_result.human_approval_required,
+                        }
+                        self._append_trace(
+                            f"engine:{engine_id}",
+                            {"args": "recommend", "context": clinical_context},
+                            {
+                                "output": engine_outputs[engine_id],
+                                "confidence": engine_result.confidence,
+                            },
+                            visualization_metadata={
+                                "step": len(self.workflow_trace) + 1,
+                                "step_name": f"Engine: {engine_id}",
+                                "agent_type": "engine",
+                                "input_type": "clinical_context",
+                                "output_type": "recommendations",
+                            },
+                        )
+                    except Exception as e:
+                        logger.error(f"Engine {engine_id} execution failed: {e}")
+                        engine_outputs[engine_id] = {"error": str(e)}
+            
+            base_result["engines"] = engine_outputs
+        
+        # Add models if available
+        if use_models and self.models:
+            model_outputs = {}
+            for model_id, model in self.models.items():
+                if model.is_available():
+                    try:
+                        # Extract features from workflow result
+                        features = {
+                            "symptom_count": len(base_result.get("structured_symptoms", [])),
+                            "condition_count": len(base_result.get("support", {}).get("conditions", [])),
+                            "risk_score": base_result.get("risk_assessment", {}).get("total_risk_score", 0) if base_result.get("risk_assessment") else 0,
+                        }
+                        model_result = await model.predict(features)
+                        model_outputs[model_id] = {
+                            "probability": model_result.probability,
+                            "confidence": model_result.confidence,
+                            "explanation": model_result.explanation,
+                            "evidence": model_result.evidence,
+                            "human_approval_required": model_result.human_approval_required,
+                        }
+                        self._append_trace(
+                            f"model:{model_id}",
+                            {"args": "predict", "context": {"features": features}},
+                            {
+                                "output": model_outputs[model_id],
+                                "confidence": model_result.confidence,
+                            },
+                            visualization_metadata={
+                                "step": len(self.workflow_trace) + 1,
+                                "step_name": f"Model: {model_id}",
+                                "agent_type": "model",
+                                "input_type": "features",
+                                "output_type": "prediction",
+                            },
+                        )
+                    except Exception as e:
+                        logger.error(f"Model {model_id} execution failed: {e}")
+                        model_outputs[model_id] = {"error": str(e)}
+            
+            base_result["models"] = model_outputs
+        
+        # Re-aggregate confidence with engines and models
+        confidence_scores = [
+            base_result.get("confidence", 0.5),
+        ]
+        if base_result.get("engines"):
+            for engine_output in base_result["engines"].values():
+                if isinstance(engine_output, dict) and "confidence" in engine_output:
+                    confidence_scores.append(engine_output["confidence"])
+        if base_result.get("models"):
+            for model_output in base_result["models"].values():
+                if isinstance(model_output, dict) and "confidence" in model_output:
+                    confidence_scores.append(model_output["confidence"])
+        
+        base_result["aggregated_confidence"] = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.5
+        base_result["workflow_confidence"]["aggregated"] = base_result["aggregated_confidence"]
+        
+        # Update trace
+        base_result["trace"] = [asdict(event) for event in self.workflow_trace]
+        
+        return base_result
+    
+    async def run_squad(
+        self,
+        squad_id: str,
+        initial_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Execute a squad workflow.
+        
+        Args:
+            squad_id: Squad identifier
+            initial_context: Initial clinical context
+            
+        Returns:
+            Squad execution result
+        """
+        if not self.mcp_registry:
+            raise ValueError("MCP registry required for squad execution")
+        
+        squad_definition = self.mcp_registry.get_squad(squad_id)
+        if not squad_definition:
+            raise ValueError(f"Squad {squad_id} not found")
+        
+        # Build execution graph from squad definition
+        execution_graph = []
+        for step_def in squad_definition.get("execution_graph", []):
+            step = SquadStep(
+                step_id=step_def["step_id"],
+                step_type=step_def["step_type"],
+                entity_id=step_def["entity_id"],
+                role=step_def.get("role", ""),
+                instructions=step_def.get("instructions", ""),
+                dependencies=step_def.get("dependencies", []),
+                input_mapping=step_def.get("input_mapping", {}),
+            )
+            execution_graph.append(step)
+        
+        # Create squad executor
+        executor = SquadExecutor(
+            squad_id=squad_id,
+            execution_graph=execution_graph,
+            mcp_registry=self.mcp_registry,
+            governance_engine=self.governance_engine,
+        )
+        
+        # Execute squad
+        squad_result = await executor.execute(initial_context)
+        
+        # Convert to workflow result format
+        result = {
+            "squad_id": squad_id,
+            "execution_id": squad_result.execution_id,
+            "outputs": squad_result.outputs,
+            "confidence": squad_result.aggregated_confidence,
+            "requires_human_approval": squad_result.requires_human_approval,
+            "trace": [asdict(event) for event in squad_result.execution_trace],
+            "metadata": squad_result.metadata,
+        }
+        
+        # Add to workflow trace
+        self.workflow_trace.extend(squad_result.execution_trace)
+        
+        return result
 
     def _audit(self, step: str, result: Dict[str, Any]) -> None:
         self.audit_log.append(

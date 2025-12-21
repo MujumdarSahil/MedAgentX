@@ -17,20 +17,22 @@ class RiskScorerAgent(SpecializedAgent):
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
         llm_engine: Optional[Any] = None,
     ):
         if config.description == "":
             config.description = "Numeric risk scoring support only; no diagnosis or treatment."
         
-        # Define safe capabilities: no diagnosis, no prescription, requires approval
-        safe_capabilities = AgentCapabilities(
-            can_diagnose=False,
-            can_prescribe=False,
-            can_use_tools=True,
-            requires_human_approval=True,
-        )
+        # Use provided capabilities, or define safe defaults: no diagnosis, no prescription, requires approval
+        if capabilities is None:
+            capabilities = AgentCapabilities(
+                can_diagnose=False,
+                can_prescribe=False,
+                can_use_tools=True,
+                requires_human_approval=True,
+            )
         
-        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=safe_capabilities, llm_engine=llm_engine)
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
 
     async def analyze(self, input_data: Any) -> Dict[str, Any]:
         """

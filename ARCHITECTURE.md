@@ -4,6 +4,16 @@
 
 MedAgentX v2.0 is a publishable, enterprise-grade, safety-first clinical intelligence system with complete architectural layers for deterministic behavior, replayability, and full auditability.
 
+## Critical Safety Statements
+
+**MedAgentX does not diagnose.**
+
+**MedAgentX does not provide treatment or medication advice.**
+
+**Patient data is not retained beyond defined TTL unless explicitly exported.**
+
+All system outputs require human clinician review and approval. The Clinical Responsibility Firewall (CRF) ensures that responsibility never escalates automatically, and AI authority never increases. All recommendations, predictions, and analyses are tagged with responsibility metadata and require explicit human validation.
+
 ## Project Structure
 
 ```
@@ -24,7 +34,11 @@ MedAgentX/
 │   │   ├── event_store.py            # Event Store + Audit Logging (v2.0)
 │   │   ├── replay_engine.py          # Time-Travel Replay Engine (v2.0)
 │   │   ├── chil.py                   # Contextual Health Intelligence Layer (v2.0)
-│   │   └── doctor_agents.py          # Doctor-Programmable Agents (v2.0)
+│   │   ├── doctor_agents.py          # Doctor-Programmable Agents (v2.0)
+│   │   ├── ps_aicp.py                # Patient-Specific AI Cognition Profiles (v2.0)
+│   │   ├── patient_explanation_engine.py  # Patient Explanation Engine (v2.0)
+│   │   ├── cde.py                    # Counterfactual Diagnosis Engine (v2.0)
+│   │   └── bounded_store.py          # 24-Hour Bounded Persistence Layer (v2.0)
 │   ├── agents/             # Agent templates
 │   │   ├── __init__.py
 │   │   ├── base_template.py
@@ -155,6 +169,77 @@ MedAgentX/
   - Delta comparison between original and replay
   - Deterministic and auditable
 
+### 10. Patient Communication Layer (v2.0)
+- **Patient-Specific AI Cognition Profiles (PS-AICP)**: Policy-based communication adaptation
+  - Profiles are POLICY-BASED (not psychological or medical diagnoses)
+  - Profiles affect ONLY communication style, tone, and explanation depth
+  - Profiles are immutable during a session
+  - Profiles NEVER affect reasoning, predictions, recommendations, or capabilities
+  - Capability Firewall and CRF remain fully authoritative
+  - Predefined profiles: ANXIOUS, TECH_SAVVY, ELDERLY, CHRONIC_CONDITION, DEFAULT
+  - Each profile defines: verbosity_level, reassurance_level, jargon_allowed, evidence_depth, longitudinal_memory_emphasis
+- **Patient Explanation Engine**: Consumes PS-AICP profiles to adapt patient-facing explanations
+  - ONLY affects patient-facing communication
+  - NEVER affects clinician-facing outputs
+  - NEVER affects reasoning, predictions, or recommendations
+  - CRF responsibility tagging remains unchanged
+  - Hard safety rules: PS-AICP must NEVER influence predictions, recommendations, risk scores, or escalation logic
+
+### 11. Counterfactual Analysis Layer (v2.0)
+- **Counterfactual Diagnosis Engine (CDE)**: Non-diagnostic, bias-reduction and decision-support module
+  - Generates controlled counterfactual scenarios by removing or altering EXACTLY ONE symptom or ONE contextual variable at a time
+  - Executes counterfactuals via the existing deterministic Replay Engine
+  - Produces structured delta reports containing:
+    - What changed
+    - What remained stable
+    - Confidence shifts (if any)
+    - Explicit uncertainty markers
+  - Mandatory labeling: "Counterfactual Analysis — Non-Diagnostic Decision Support"
+  - Hard constraints:
+    - Must NOT generate diagnoses
+    - Must NOT rank diseases
+    - Must NOT suggest treatments or medications
+    - Must NOT override clinician authority
+  - Permitted use cases:
+    - Anchoring bias reduction
+    - Alternate explanation comparison
+    - Rare condition surfacing WITHOUT naming conditions
+
+### 12. Bounded Persistence Layer (v2.0)
+- **Bounded Store**: 24-hour bounded persistence layer for short-term memory and logs
+  - Privacy-safe, bounded persistence layer
+  - ABSOLUTE CONSTRAINTS:
+    - NO external databases (no SQL, MongoDB, Redis, cloud storage)
+    - Local file-based encrypted storage ONLY
+    - Deterministic behavior required
+    - Explicit data lifecycle visibility required
+  - Data types stored:
+    - Event logs
+    - Replay traces
+    - Session memory summaries
+  - Retention rules:
+    - Default retention window: 24 hours (configurable constant)
+    - TTL enforced on BOTH read and write
+    - Auto-purge expired records deterministically
+  - MANDATORY EXCEL ARCHIVAL REQUIREMENT:
+    - Before ANY data is deleted due to TTL expiry:
+      - Generate an Excel (.xlsx) summary file
+      - Include: Timestamp, Session ID, Agent/Squad identifiers, Responsibility tags (CRF), High-level outcome summaries ONLY (no raw PHI)
+      - Store Excel files in a designated /archives/ directory
+      - Excel files are read-only records for compliance/audit purposes
+      - After Excel export → purge in-memory and encrypted files
+  - Additional features:
+    - Manual purge API
+    - Explicit Export-to-JSON API (full fidelity, responsibility preserved)
+    - Clear separation between:
+      - ephemeral operational data
+      - exported compliance artifacts
+  - Integration:
+    - Event Store writes to bounded store
+    - Replay Engine reads ONLY from bounded store or exported artifacts
+    - No silent persistence allowed
+    - No background retention beyond TTL
+
 ## Custom Agent Capabilities System
 
 ### Overview
@@ -198,6 +283,9 @@ Demonstrates a doctor-created agent for cardiac risk scoring:
 10. **Governed Execution**: Static execution graphs with no loops, no autonomy, no improvisation (v1.7, enhanced v2.0)
 11. **Replayability**: All executions are stored and can be replayed deterministically (v2.0)
 12. **Contextual Intelligence**: Context fusion for risk amplification without diagnosis (v2.0)
+13. **Patient Communication Adaptation**: Policy-based communication profiles that NEVER affect clinical reasoning (v2.0)
+14. **Counterfactual Analysis**: Non-diagnostic bias reduction and decision support (v2.0)
+15. **Bounded Data Retention**: Explicit TTL with Excel archival before deletion (v2.0)
 
 ## v2.0 New Features (Architecture-Complete)
 
@@ -270,6 +358,34 @@ Demonstrates a doctor-created agent for cardiac risk scoring:
 - Show confidence and responsibility tags
 - Clearly mark "Human Approval Required"
 - Allow replay and export
+
+### Patient-Specific AI Cognition Profiles (PS-AICP)
+- Policy-based communication adaptation system
+- Profiles affect ONLY communication style, tone, and explanation depth
+- Profiles are immutable during a session
+- Profiles NEVER affect reasoning, predictions, recommendations, or capabilities
+- Integration: PS-AICP is consumed ONLY by the Patient Explanation Engine
+- Clinician-facing outputs are NEVER modified
+- CRF responsibility tagging (AI_SUGGESTED / DOCTOR_VALIDATED / DOCTOR_OVERRIDDEN) remains unchanged
+
+### Counterfactual Diagnosis Engine (CDE)
+- Non-diagnostic, bias-reduction and decision-support module
+- Decision-science framing for anchoring bias reduction
+- Bias mitigation purpose
+- Explicit prohibition of diagnosis/treatment
+- Mandatory labeling: "Counterfactual Analysis — Non-Diagnostic Decision Support"
+- Generates controlled counterfactual scenarios (one modification at a time)
+- Executes via deterministic Replay Engine
+- Produces structured delta reports
+
+### 24-Hour Bounded Persistence Layer
+- Privacy-safe, bounded persistence for short-term memory and logs
+- Local file-based encrypted storage ONLY (no external databases)
+- 24-hour TTL policy (configurable)
+- Excel archival before deletion (mandatory)
+- Explicit user/doctor-controlled exports
+- Privacy guarantees and PHI minimization
+- Data lifecycle visibility required
 
 ## v1.7 New Features
 

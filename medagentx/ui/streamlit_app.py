@@ -429,18 +429,6 @@ elif page == "Symptom Analysis":
                     with st.expander("🔍 Technical Details"):
                         st.exception(e)
                     st.info("💡 **Tip**: Check that the workflow is properly initialized and all agents are available.")
-                    
-                    # Show LLM usage if available
-                    if result and "trace" in result:
-                        st.markdown("#### LLM Usage")
-                        llm_usage_found = False
-                        for event in result.get("trace", []):
-                            if isinstance(event, dict) and event.get("llm_usage"):
-                                llm_usage_found = True
-                                llm_info = event["llm_usage"]
-                                st.json(llm_info)
-                        if not llm_usage_found:
-                            st.info("No LLM usage in this analysis (deterministic mode).")
 
 # LLM Configuration
 elif page == "LLM Configuration":

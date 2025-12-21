@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional
 import json
 
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import AgentConfig
+from medagentx.core.types import AgentConfig, AgentCapabilities
 from medagentx.models.llm_engine import LLMPurpose
 
 class SymptomAnalyzerAgent(SpecializedAgent):
@@ -14,11 +14,12 @@ class SymptomAnalyzerAgent(SpecializedAgent):
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
         llm_engine: Optional[Any] = None,
     ):
         if config.description == "":
             config.description = "Symptom structuring only; no diagnosis."
-        super().__init__(config, tool_registry, governance_engine, knowledge_base, llm_engine=llm_engine)
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
 
     async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         text = (context or {}).get("raw_symptoms", "")

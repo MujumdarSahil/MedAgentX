@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 import json
 
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import AgentConfig
+from medagentx.core.types import AgentConfig, AgentCapabilities
 from medagentx.models.llm_engine import LLMPurpose
 
 
@@ -15,11 +15,12 @@ class DiagnosisSupportAgent(SpecializedAgent):
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
         llm_engine: Optional[Any] = None,
     ):
         if config.description == "":
             config.description = "Supportive reasoning only; no definitive diagnosis."
-        super().__init__(config, tool_registry, governance_engine, knowledge_base, llm_engine=llm_engine)
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
 
     async def plan(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate reasoning plan, optionally using LLM."""

@@ -33,6 +33,7 @@ biopython>=1.81  # Bioinformatics utilities
 # Data Processing
 pandas>=2.0.0
 numpy>=1.24.0
+openpyxl>=3.1.0  # Excel export for bounded store archival
 
 # Validation & Serialization
 jsonschema>=4.19.0

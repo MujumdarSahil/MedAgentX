@@ -1,4 +1,8 @@
-# MedAgentX Platform Architecture v1.7
+# MedAgentX Platform Architecture v2.0
+
+## Architecture-Complete Clinical Intelligence Platform
+
+MedAgentX v2.0 is a publishable, enterprise-grade, safety-first clinical intelligence system with complete architectural layers for deterministic behavior, replayability, and full auditability.
 
 ## Project Structure
 
@@ -12,10 +16,15 @@ MedAgentX/
 │   │   ├── agent.py        # Base Agent class
 │   │   ├── types.py        # Type definitions
 │   │   ├── workflow.py     # Workflow engine
-│   │   ├── recommendation_engine.py  # RecommendationEngine abstraction (v1.7)
-│   │   ├── prediction_model.py       # PredictionModel abstraction (v1.7)
-│   │   ├── mcp_registry.py           # Extended MCP registry (v1.7)
-│   │   └── squad.py                  # Squad execution model (v1.7)
+│   │   ├── recommendation_engine.py  # RecommendationEngine abstraction (v1.7, enhanced v2.0)
+│   │   ├── prediction_model.py       # PredictionModel abstraction (v1.7, enhanced v2.0)
+│   │   ├── mcp_registry.py           # Extended MCP registry (v1.7, enhanced v2.0)
+│   │   ├── squad.py                  # Squad execution model (v1.7, enhanced v2.0)
+│   │   ├── crf.py                    # Clinical Responsibility Firewall (v2.0)
+│   │   ├── event_store.py            # Event Store + Audit Logging (v2.0)
+│   │   ├── replay_engine.py          # Time-Travel Replay Engine (v2.0)
+│   │   ├── chil.py                   # Contextual Health Intelligence Layer (v2.0)
+│   │   └── doctor_agents.py          # Doctor-Programmable Agents (v2.0)
 │   ├── agents/             # Agent templates
 │   │   ├── __init__.py
 │   │   ├── base_template.py
@@ -74,9 +83,17 @@ MedAgentX/
 
 ### 2. Clinical Intelligence Layer
 - **RecommendationWorkflow**: Orchestrates multi-agent workflows
-- **RecommendationEngines**: Governed recommendation generation (v1.7)
-- **PredictionModels**: Governed prediction generation (v1.7)
-- **SquadExecutor**: Governed multi-agent task execution (v1.7)
+- **RecommendationEngines**: Governed recommendation generation (v1.7, enhanced v2.0)
+  - Behavioral recommendations
+  - Monitoring suggestions
+  - Escalation triggers
+  - Responsibility metadata (CRF)
+- **PredictionModels**: Governed prediction generation (v1.7, enhanced v2.0)
+  - Probability bands (not single-point)
+  - Responsibility metadata (CRF)
+- **SquadExecutor**: Governed multi-agent task execution (v1.7, enhanced v2.0)
+  - CRF enforcement at every step
+  - Full audit trail
 - **Recommendation Types**: Structured recommendation outputs
 - **Human Approval Gates**: Mandatory approval workflow
 
@@ -88,11 +105,17 @@ MedAgentX/
 
 ### 4. Safety & Governance Layer
 - **GovernanceEngine**: Enforces safety rules and validates agent capabilities
+- **ClinicalResponsibilityFirewall (CRF)**: v2.0 - Enforces responsibility boundaries
+  - All outputs tagged: AI_SUGGESTED, DOCTOR_VALIDATED, DOCTOR_OVERRIDDEN
+  - Responsibility never escalates automatically
+  - Immutable and auditable metadata
 - **AgentCapabilities**: Policy-constrained capability model for custom agents
+- **CapabilityFirewall**: v2.0 - Architectural limits non-overridable
 - **GovernanceException**: Raised when governance policy is violated
 - **SafetyRule**: Base class for safety rules
 - **ClinicalSafetyRule**: Clinical-specific safety checks
 - **Audit Logging**: Complete audit trail with capability violation tracking
+- **Event Store**: v2.0 - Append-only event storage for deterministic replay
 
 ### 5. Tool & MCP Layer
 - **ToolRegistry**: Tool management and execution
@@ -110,6 +133,27 @@ MedAgentX/
 ### 7. Platform Layer
 - **MedAgentXPlatform**: Main platform orchestrator
 - Initializes and coordinates all components
+
+### 8. Contextual Intelligence Layer (v2.0)
+- **ContextualHealthIntelligenceLayer (CHIL)**: Context fusion for risk amplification
+  - Geographic context (privacy-safe, coarse-grained)
+  - Weather context (temperature, humidity, air quality)
+  - Lifestyle signals (diet, activity, sleep, stress)
+  - Temporal context (season, time of day)
+  - Deterministic correlation and risk amplification only
+  - NO diagnosis or treatment
+
+### 9. Replay & Audit Layer (v2.0)
+- **EventStore**: Append-only event storage
+  - Every execution step stored as structured JSON
+  - Timestamps, agent/tool IDs, responsibility tags, confidence, evidence
+  - No overwrites allowed
+  - JSON export functionality
+- **ReplayEngine**: Time-travel replay engine
+  - Re-run past workflows using stored events
+  - Support modified inputs, updated guidelines, altered context
+  - Delta comparison between original and replay
+  - Deterministic and auditable
 
 ## Custom Agent Capabilities System
 
@@ -143,13 +187,89 @@ Demonstrates a doctor-created agent for cardiac risk scoring:
 ## Key Design Principles
 
 1. **Safety First**: Human approval mandatory at architecture level; capabilities enforced at multiple layers
-2. **Extensibility**: Users can create custom agents, tools, engines, models, and squads with policy constraints
-3. **Evidence-Based**: Recommendations supported by retrieved knowledge
-4. **Transparency**: Full audit logging and decision traceability, including capability violations and LLM usage
-5. **Modularity**: Components are loosely coupled and replaceable
-6. **Policy-Constrained Customization**: Custom agents cannot bypass safety mechanisms
-7. **Multi-LLM Support**: Optional LLM assistance with multiple provider adapters (v1.7)
-8. **Governed Execution**: Static execution graphs with no loops, no autonomy, no improvisation (v1.7)
+2. **Responsibility Boundaries**: CRF enforces that responsibility never escalates automatically; AI authority never increases
+3. **Deterministic Behavior**: System must be deterministic and replayable; LLMs are optional and assistive only
+4. **Extensibility**: Users can create custom agents, tools, engines, models, and squads with policy constraints
+5. **Evidence-Based**: Recommendations supported by retrieved knowledge
+6. **Transparency**: Full audit logging and decision traceability, including capability violations, LLM usage, and responsibility tags
+7. **Modularity**: Components are loosely coupled and replaceable
+8. **Policy-Constrained Customization**: Custom agents cannot bypass safety mechanisms
+9. **Multi-LLM Support**: Optional LLM assistance with multiple provider adapters (v1.7, complete v2.0)
+10. **Governed Execution**: Static execution graphs with no loops, no autonomy, no improvisation (v1.7, enhanced v2.0)
+11. **Replayability**: All executions are stored and can be replayed deterministically (v2.0)
+12. **Contextual Intelligence**: Context fusion for risk amplification without diagnosis (v2.0)
+
+## v2.0 New Features (Architecture-Complete)
+
+### Clinical Responsibility Firewall (CRF)
+- Every output tagged with responsibility level (AI_SUGGESTED, DOCTOR_VALIDATED, DOCTOR_OVERRIDDEN)
+- Responsibility NEVER escalates automatically (even with high confidence)
+- AI authority never increases
+- Immutable and auditable metadata
+- Enforced at: Agent output, Recommendation engine output, Prediction model output, Workflow aggregation
+
+### Event Store + Audit Logging
+- Append-only event store for every execution step
+- Structured JSON events with timestamps, responsibility tags, confidence, evidence
+- Support for deterministic replay from stored events
+- No overwrites allowed
+- JSON export functionality
+
+### Time-Travel Replay Engine
+- Re-run past workflows using stored events
+- Support modified inputs, updated guideline versions, altered environmental context
+- Delta comparison between original and replay
+- Deterministic and auditable
+
+### Contextual Health Intelligence Layer (CHIL)
+- Context fusion layer ingesting:
+  - Geography (coarse, privacy-safe)
+  - Weather (temperature, humidity, air quality)
+  - Seasonality
+  - Lifestyle signals (diet, activity, sleep, stress)
+  - Temporal history
+- Rules: No diagnosis, only correlation and risk amplification, fully deterministic, all logic auditable
+
+### Enhanced Recommendation Engine Framework
+- Behavioral recommendations
+- Monitoring suggestions
+- Escalation triggers
+- Responsibility metadata (CRF)
+- human_approval_required = true (always)
+
+### Enhanced Prediction Model Framework
+- Probability bands (not single-point estimates)
+- Responsibility metadata (CRF)
+- Explanation and evidence
+- human_approval_required = true (always)
+
+### Doctor-Programmable Agents
+- Configuration-driven agents that doctors can define:
+  - Agent name, role, allowed tasks, forbidden tasks, escalation rules
+- Capability Firewall: Authority limits are architectural and non-overridable
+- Patients can only use doctor-created agents
+
+### Extended MCP Registry
+- Support for forbidden_outputs (explicit forbidden output types)
+- Enhanced governance constraints validation
+- Registration of Agents, Tools, Engines, Models, Squads with full metadata
+
+### Enhanced Squad Execution Engine
+- CRF enforcement at every step
+- Full audit trail with responsibility tags
+- Deterministic execution with no loops
+
+### Multi-LLM Orchestration (Complete)
+- Support for: Anthropic Claude, Google Gemini, Mistral AI, Cohere, Perplexity (in addition to OpenAI, Groq, Ollama)
+- LLMs assist reasoning only (no decisions, no authority)
+- Track provider, model, purpose, token usage
+- Deterministic mode still works without LLMs
+
+### Streamlit UI Extensions
+- New tabs: Engines, Models, Squads, Replay / Audit
+- Show confidence and responsibility tags
+- Clearly mark "Human Approval Required"
+- Allow replay and export
 
 ## v1.7 New Features
 

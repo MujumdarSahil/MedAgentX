@@ -25,6 +25,11 @@ class RecommendationOutput:
     human_approval_required: bool = True  # Always True
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    # v2.0 additions
+    behavioral_recommendations: List[str] = field(default_factory=list)  # Behavioral recommendations
+    monitoring_suggestions: List[str] = field(default_factory=list)  # Monitoring suggestions
+    escalation_triggers: List[str] = field(default_factory=list)  # Escalation triggers
+    responsibility_metadata: Optional[Dict[str, Any]] = None  # CRF responsibility tag
 
 
 class RecommendationEngine(ABC):

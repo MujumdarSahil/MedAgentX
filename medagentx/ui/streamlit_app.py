@@ -68,7 +68,7 @@ from medagentx.core.squad import SquadStep, SquadExecutor
 
 # Page configuration
 st.set_page_config(
-    page_title="MedAgentX v1.6",
+    page_title="MedAgentX v2.0",
     page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -230,7 +230,7 @@ st.sidebar.markdown("**Clinical Intelligence Platform**")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Symptom Analysis", "LLM Configuration", "Agents", "Tools", "Engines", "Models", "Workflow Builder", "Workflows", "Audit Logs"],
+    ["Dashboard", "Symptom Analysis", "LLM Configuration", "Agents", "Tools", "Engines", "Models", "Squads", "Workflow Builder", "Workflows", "Replay / Audit", "Audit Logs"],
 )
 
 # Initialize system
@@ -239,7 +239,7 @@ initialize_system()
 # Dashboard
 if page == "Dashboard":
     st.title("📊 Dashboard")
-    st.markdown("### Welcome to MedAgentX v1.7")
+    st.markdown("### Welcome to MedAgentX v2.0 (Architecture-Complete Clinical Intelligence Platform)")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -1194,6 +1194,208 @@ elif page == "Workflows":
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
                         st.exception(e)
+
+# Squads (v2.0)
+elif page == "Squads":
+    st.title("👥 Squads")
+    st.markdown("### Governed Multi-Agent Workflows")
+    st.info("ℹ️ **Squads are static execution graphs with explicit roles and fixed instructions.**")
+    
+    # Initialize MCP registry if needed
+    if st.session_state.mcp_registry is None:
+        st.session_state.mcp_registry = MCPRegistry()
+    
+    mcp_registry = st.session_state.mcp_registry
+    
+    # List registered squads
+    st.markdown("### Registered Squads")
+    squad_ids = mcp_registry.list_squads()
+    
+    if squad_ids:
+        for squad_id in squad_ids:
+            squad_def = mcp_registry.get_squad(squad_id)
+            metadata = mcp_registry.get_metadata(squad_id)
+            
+            with st.expander(f"**{squad_id}** - {metadata.name if metadata else 'Unknown'}"):
+                if metadata:
+                    st.markdown(f"**Description:** {metadata.description}")
+                    st.markdown(f"**Purpose:** {metadata.purpose}")
+                    st.markdown(f"**Scope:** {metadata.scope}")
+                    st.markdown(f"**Created by:** {metadata.created_by}")
+                    st.markdown(f"**Created at:** {metadata.created_at}")
+                
+                if squad_def:
+                    st.markdown("#### Execution Graph")
+                    for step in squad_def.get("execution_graph", []):
+                        st.markdown(f"- **{step.get('step_id')}** ({step.get('step_type')}): {step.get('role', 'N/A')}")
+                        st.markdown(f"  - Entity: {step.get('entity_id')}")
+                        st.markdown(f"  - Instructions: {step.get('instructions', 'N/A')}")
+                        if step.get('dependencies'):
+                            st.markdown(f"  - Dependencies: {', '.join(step.get('dependencies', []))}")
+    else:
+        st.info("No squads registered yet. Create one in the Workflow Builder tab.")
+    
+    # Execute squad
+    st.markdown("---")
+    st.markdown("### Execute Squad")
+    if squad_ids:
+        selected_squad = st.selectbox("Select Squad", squad_ids)
+        
+        with st.form("execute_squad_form_v2"):
+            initial_context = st.text_area(
+                "Initial Context (JSON)",
+                value='{"symptoms": ["fever", "cough"], "patient_data": {}}',
+                height=100,
+            )
+            
+            if st.form_submit_button("Execute Squad"):
+                try:
+                    import json
+                    context_dict = json.loads(initial_context)
+                    
+                    # Get workflow
+                    workflow = st.session_state.workflow
+                    if workflow:
+                        result = run_async(workflow.run_squad(selected_squad, context_dict))
+                        
+                        st.markdown("#### Squad Execution Result")
+                        
+                        # v2.0: Show responsibility tags and confidence
+                        if "responsibility_metadata" in str(result):
+                            st.warning("⚠️ **Human Approval Required**")
+                        
+                        st.json(result)
+                        
+                        st.markdown("#### Execution Trace")
+                        trace = result.get("trace", [])
+                        st.json(trace)
+                    else:
+                        st.error("Workflow not initialized. Please visit Dashboard first.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                    st.exception(e)
+    else:
+        st.info("No squads available to execute.")
+
+# Replay / Audit (v2.0)
+elif page == "Replay / Audit":
+    st.title("🔄 Replay / Audit")
+    st.markdown("### Time-Travel Replay Engine & Event Store")
+    st.info("ℹ️ **Replay past workflows with modified inputs and compare results.**")
+    
+    # Initialize event store
+    from medagentx.core.event_store import EventStore
+    from medagentx.core.replay_engine import ReplayEngine
+    
+    if "event_store" not in st.session_state:
+        st.session_state.event_store = EventStore()
+    
+    event_store = st.session_state.event_store
+    
+    # List executions
+    st.markdown("### Past Executions")
+    executions = event_store.list_executions()
+    
+    if executions:
+        selected_execution = st.selectbox("Select Execution", executions)
+        
+        # Show execution events
+        st.markdown("#### Execution Events")
+        events = event_store.get_events(selected_execution)
+        
+        if events:
+            st.markdown(f"**Total Events:** {len(events)}")
+            
+            for event in events:
+                with st.expander(f"**{event.get('event_type')}** - {event.get('source_id')} - {event.get('timestamp', '')[:19]}"):
+                    st.json(event)
+            
+            # Export execution
+            if st.button("Export Execution"):
+                try:
+                    export_path = event_store.export_execution(selected_execution)
+                    st.success(f"✅ Exported to: {export_path}")
+                    with open(export_path, "r") as f:
+                        st.download_button(
+                            label="Download Export",
+                            data=f.read(),
+                            file_name=f"{selected_execution}.json",
+                            mime="application/json",
+                        )
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        else:
+            st.info("No events found for this execution.")
+        
+        # Replay execution
+        st.markdown("---")
+        st.markdown("### Replay Execution")
+        
+        with st.form("replay_form"):
+            st.markdown("#### Modified Inputs (Optional)")
+            modified_inputs = st.text_area(
+                "Modified Inputs (JSON)",
+                value="{}",
+                height=100,
+                help="Leave empty to use original inputs",
+            )
+            
+            st.markdown("#### Modified Context (Optional)")
+            modified_context = st.text_area(
+                "Modified Context (JSON)",
+                value="{}",
+                height=100,
+                help="Leave empty to use original context",
+            )
+            
+            use_updated_guidelines = st.checkbox("Use Updated Guidelines", value=False)
+            
+            if st.form_submit_button("Replay Execution"):
+                try:
+                    import json
+                    mod_inputs = json.loads(modified_inputs) if modified_inputs.strip() else None
+                    mod_context = json.loads(modified_context) if modified_context.strip() else None
+                    
+                    # Get workflow
+                    workflow = st.session_state.workflow
+                    if workflow:
+                        replay_engine = ReplayEngine(event_store, workflow)
+                        result = run_async(replay_engine.replay(
+                            execution_id=selected_execution,
+                            modified_inputs=mod_inputs,
+                            modified_context=mod_context,
+                            use_updated_guidelines=use_updated_guidelines,
+                        ))
+                        
+                        st.markdown("#### Replay Result")
+                        st.json(result)
+                        
+                        # Show delta
+                        if "delta" in result:
+                            delta = result["delta"]
+                            st.markdown("#### Delta Comparison")
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Matches", len(delta.get("matches", [])))
+                            with col2:
+                                st.metric("Differences", len(delta.get("differences", [])))
+                            
+                            if delta.get("differences"):
+                                st.markdown("##### Differences")
+                                for diff in delta["differences"]:
+                                    with st.expander(f"**{diff.get('source_id')}**"):
+                                        st.markdown("**Original:**")
+                                        st.json(diff.get("original", {}))
+                                        st.markdown("**Replay:**")
+                                        st.json(diff.get("replay", {}))
+                    else:
+                        st.error("Workflow not initialized. Please visit Dashboard first.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+                    st.exception(e)
+    else:
+        st.info("No executions found. Run workflows to generate execution events.")
 
 # Audit Logs
 elif page == "Audit Logs":

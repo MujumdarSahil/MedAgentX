@@ -25,6 +25,9 @@ class PredictionOutput:
     human_approval_required: bool = True  # Always True
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    # v2.0 additions
+    probability_bands: Dict[str, float] = field(default_factory=dict)  # e.g., {"low": 0.2, "high": 0.8}
+    responsibility_metadata: Optional[Dict[str, Any]] = None  # CRF responsibility tag
 
 
 class PredictionModel(ABC):
@@ -187,6 +190,7 @@ class DeterministicPredictionModel(PredictionModel):
                 confidence=0.5,
                 explanation="Deterministic rule-based prediction",
                 evidence=["Rule-based calculation"],
+                probability_bands={"low": 0.3, "high": 0.7},  # v2.0: probability bands
             )
         
         # Ensure human approval

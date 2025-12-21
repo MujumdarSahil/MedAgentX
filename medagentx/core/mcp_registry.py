@@ -43,6 +43,7 @@ class MCPEntityMetadata:
         governance_constraints: Dict[str, Any],
         created_by: str,
         created_at: Optional[str] = None,
+        forbidden_outputs: Optional[List[str]] = None,  # v2.0: explicit forbidden outputs
     ):
         self.entity_id = entity_id
         self.entity_type = entity_type
@@ -51,6 +52,7 @@ class MCPEntityMetadata:
         self.purpose = purpose
         self.scope = scope
         self.allowed_outputs = allowed_outputs
+        self.forbidden_outputs = forbidden_outputs or []  # v2.0
         self.governance_constraints = governance_constraints
         self.created_by = created_by
         self.created_at = created_at or datetime.now().isoformat()
@@ -65,6 +67,7 @@ class MCPEntityMetadata:
             "purpose": self.purpose,
             "scope": self.scope,
             "allowed_outputs": self.allowed_outputs,
+            "forbidden_outputs": self.forbidden_outputs,  # v2.0
             "governance_constraints": self.governance_constraints,
             "created_by": self.created_by,
             "created_at": self.created_at,
@@ -79,11 +82,17 @@ class MCPEntityMetadata:
         """
         errors = []
         
-        # Check forbidden outputs
+        # Check forbidden outputs in allowed_outputs
         forbidden = ["diagnosis", "treatment", "prescription"]
         allowed_str = " ".join(self.allowed_outputs).lower()
         if any(f in allowed_str for f in forbidden):
             errors.append(f"Entity {self.entity_id} has forbidden output type in allowed_outputs")
+        
+        # v2.0: Check that forbidden_outputs doesn't conflict with allowed_outputs
+        if self.forbidden_outputs:
+            for forbidden_output in self.forbidden_outputs:
+                if forbidden_output in self.allowed_outputs:
+                    errors.append(f"Entity {self.entity_id} has {forbidden_output} in both allowed_outputs and forbidden_outputs")
         
         # Check required fields
         if not self.entity_id:

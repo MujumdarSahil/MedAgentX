@@ -34,6 +34,7 @@ from medagentx.core.types import AgentTrace
 from medagentx.core.mcp_registry import MCPRegistry
 from medagentx.core.recommendation_engine import RecommendationOutput
 from medagentx.core.prediction_model import PredictionOutput
+from medagentx.core.crf import ClinicalResponsibilityFirewall
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class SquadExecutor:
         execution_graph: List[SquadStep],
         mcp_registry: MCPRegistry,
         governance_engine: Optional[Any] = None,
+        crf: Optional[ClinicalResponsibilityFirewall] = None,  # v2.0: CRF
     ):
         """
         Initialize squad executor.
@@ -86,11 +88,13 @@ class SquadExecutor:
             execution_graph: List of SquadStep objects (must be acyclic)
             mcp_registry: MCP registry for entity lookup
             governance_engine: Optional governance engine for validation
+            crf: Optional Clinical Responsibility Firewall
         """
         self.squad_id = squad_id
         self.execution_graph = execution_graph
         self.mcp_registry = mcp_registry
         self.governance_engine = governance_engine
+        self.crf = crf or ClinicalResponsibilityFirewall()  # v2.0: Default CRF
         
         # Validate execution graph
         self._validate_execution_graph()
@@ -153,13 +157,37 @@ class SquadExecutor:
                 result.outputs[step.step_id] = step_output
                 result.steps_executed.append(step.step_id)
                 
+                # v2.0: CRF enforcement
+                if isinstance(step_output, dict):
+                    step_output = self.crf.enforce(
+                        step_output,
+                        source=step.step_type,
+                        source_id=step.entity_id,
+                    )
+                elif hasattr(step_output, "__dict__"):
+                    # Convert dataclass to dict for CRF
+                    step_output_dict = step_output.__dict__ if hasattr(step_output, "__dict__") else {}
+                    step_output_dict = self.crf.enforce(
+                        step_output_dict,
+                        source=step.step_type,
+                        source_id=step.entity_id,
+                    )
+                    # Update dataclass if possible
+                    if hasattr(step_output, "responsibility_metadata"):
+                        step_output.responsibility_metadata = step_output_dict.get("responsibility_metadata")
+                
                 # Create trace entry
                 trace = self._create_trace_entry(step, step_input, step_output)
                 result.execution_trace.append(trace)
                 
                 # Governance check
                 if self.governance_engine:
-                    self.governance_engine.enforce(step_output)
+                    if isinstance(step_output, dict):
+                        self.governance_engine.enforce(step_output)
+                    else:
+                        # Convert to dict for governance
+                        output_dict = step_output.__dict__ if hasattr(step_output, "__dict__") else {}
+                        self.governance_engine.enforce(output_dict)
                 
             except Exception as e:
                 logger.error(f"Squad {self.squad_id} step {step.step_id} failed: {e}")

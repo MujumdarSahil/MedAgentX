@@ -1,69 +1,84 @@
-# Core Dependencies
-# Note: Python 3.10+ is required (specified in setup.py)
+# MedAgentX Runtime Dependencies
+# Python 3.10+ required
+
+# ──────────────────────────────────────────
+# Core
+# ──────────────────────────────────────────
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 pyyaml>=6.0
 typing-extensions>=4.8.0
 python-dotenv>=1.0.0
 
-# Async & Concurrency
+# ──────────────────────────────────────────
+# Async
+# ──────────────────────────────────────────
 aiohttp>=3.9.0
-asyncio>=3.4.3
 
-# LLM & AI
+# ──────────────────────────────────────────
+# LLM Providers
+# ──────────────────────────────────────────
 openai>=1.0.0
 anthropic>=0.18.0
 groq>=0.4.0
 google-generativeai>=0.3.0
 mistralai>=0.1.0
 cohere>=4.0.0
+
+# ──────────────────────────────────────────
+# LangChain
+# ──────────────────────────────────────────
 langchain>=0.1.0
 langchain-community>=0.0.10
 
-# Vector Databases & Retrieval
+# ──────────────────────────────────────────
+# Retrieval (Hybrid RAG)
+# ──────────────────────────────────────────
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.0
 chromadb>=0.4.0
 rank-bm25>=0.2.2
 
-# Medical & Healthcare
-pymedtermino>=0.1.0  # Medical terminology
-biopython>=1.81  # Bioinformatics utilities
+# ──────────────────────────────────────────
+# Medical Terminology
+# ──────────────────────────────────────────
+pymedtermino>=0.1.0
 
-# Data Processing
+# ──────────────────────────────────────────
+# Data
+# ──────────────────────────────────────────
 pandas>=2.0.0
 numpy>=1.24.0
-openpyxl>=3.1.0  # Excel export for bounded store archival
+openpyxl>=3.1.0
 
-# Validation & Serialization
+# ──────────────────────────────────────────
+# Validation
+# ──────────────────────────────────────────
 jsonschema>=4.19.0
-marshmallow>=3.20.0
 
-# Logging & Monitoring
+# ──────────────────────────────────────────
+# Logging
+# ──────────────────────────────────────────
 loguru>=0.7.0
 structlog>=23.2.0
 
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-
-# Development
-black>=23.0.0
-ruff>=0.1.0
-mypy>=1.6.0
-
+# ──────────────────────────────────────────
 # MCP Protocol
+# ──────────────────────────────────────────
 mcp>=0.1.0
 
-# Security & Encryption (for HIPAA considerations)
+# ──────────────────────────────────────────
+# Security (HIPAA-aligned encryption)
+# ──────────────────────────────────────────
 cryptography>=41.0.0
 
-# API Framework
+# ──────────────────────────────────────────
+# API
+# ──────────────────────────────────────────
 fastapi>=0.104.0
 uvicorn>=0.24.0
-pydantic>=2.0.0
 
-# UI Framework
+# ──────────────────────────────────────────
+# UI
+# ──────────────────────────────────────────
 streamlit>=1.28.0
-

@@ -1,0 +1,28 @@
+# MedAgentX Development + Evaluation Dependencies
+# Install with: pip install -r requirements-dev.txt
+# (includes all runtime requirements)
+
+-r requirements.txt
+
+# ──────────────────────────────────────────
+# Testing
+# ──────────────────────────────────────────
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# ──────────────────────────────────────────
+# Code Quality
+# ──────────────────────────────────────────
+black>=23.0.0
+ruff>=0.1.0
+mypy>=1.6.0
+
+# ──────────────────────────────────────────
+# Evaluation (Phase 2)
+# ──────────────────────────────────────────
+scipy>=1.11.0          # chi-square tests, statistical analysis
+statsmodels>=0.14.0    # confidence intervals
+matplotlib>=3.7.0      # results visualization
+seaborn>=0.12.0        # evaluation plots
+tiktoken>=0.5.0        # token counting for LLM baseline comparison

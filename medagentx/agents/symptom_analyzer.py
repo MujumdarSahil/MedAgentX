@@ -1,102 +1,78 @@
-"""
-Symptom Analyzer Agent.
+from typing import Any, Dict, Optional
+import json
 
-Analyzes patient symptoms and generates initial hypotheses about
-possible conditions.
-"""
-
-from typing import Any, Dict, List, Optional
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import (
-    AgentConfig,
-    RecommendationType,
-    ClinicalConfidence,
-)
-
+from medagentx.core.types import AgentConfig, AgentCapabilities
+from medagentx.models.llm_engine import LLMPurpose
 
 class SymptomAnalyzerAgent(SpecializedAgent):
-    """
-    Agent specialized in analyzing symptoms and generating diagnostic hypotheses.
-    
-    Capabilities:
-    - Parse and structure symptom descriptions
-    - Generate possible condition hypotheses
-    - Retrieve relevant clinical knowledge
-    - Assess symptom severity and urgency
-    """
-    
+    """Parse raw symptom text into a structured list (no diagnosis)."""
+
     def __init__(
         self,
         config: AgentConfig,
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
+        llm_engine: Optional[Any] = None,
     ):
-        """Initialize Symptom Analyzer Agent."""
         if config.description == "":
-            config.description = (
-                "Analyzes patient symptoms and generates initial diagnostic hypotheses. "
-                "Provides structured symptom analysis and condition suggestions."
-            )
-        super().__init__(config, tool_registry, governance_engine, knowledge_base)
-    
-    async def analyze_symptoms(
-        self,
-        symptoms: str,
-        patient_context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Analyze symptoms and generate hypotheses.
+            config.description = "Symptom structuring only; no diagnosis."
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
+
+    async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        text = (context or {}).get("raw_symptoms", "")
         
-        Args:
-            symptoms: Symptom description (free text or structured)
-            patient_context: Additional patient context (age, gender, history, etc.)
-            
-        Returns:
-            Analysis results with hypotheses
-        """
-        # Structure the task
-        task = f"""
-        Analyze the following symptoms and generate diagnostic hypotheses:
+        # Try LLM for symptom normalization if available
+        if self.llm_engine and self.llm_engine.is_available():
+            try:
+                prompt = f"""Normalize and structure the following symptoms into a clean JSON list.
+Input: {text}
+
+Return ONLY a JSON object with this structure:
+{{"symptoms": ["symptom1", "symptom2", ...]}}
+
+Do not diagnose, only normalize symptom names."""
+                
+                llm_response = await self.llm_engine.generate(
+                    prompt=prompt,
+                    purpose=LLMPurpose.SYMPTOM_NORMALIZATION,
+                    system_prompt="You are a medical symptom normalizer. Extract and normalize symptom names only. Do not diagnose.",
+                    response_format={"type": "json_object"},
+                )
+                
+                # Update LLM usage tracking
+                self._last_llm_usage = {
+                    "model": llm_response.get("model"),
+                    "provider": self.llm_engine.provider.value,
+                    "purpose": LLMPurpose.SYMPTOM_NORMALIZATION.value,
+                    "usage": llm_response.get("usage", {}),
+                }
+                
+                # Parse structured output
+                if llm_response.get("structured_output"):
+                    structured = llm_response["structured_output"]
+                    tokens = structured.get("symptoms", [])
+                    if tokens:
+                        output = {"symptoms": tokens, "note": "Structured for downstream support; not a diagnosis."}
+                        confidence = 0.7  # Higher confidence with LLM normalization
+                        return {
+                            "output": output,
+                            "confidence": confidence,
+                            "reasoning": "LLM-assisted symptom normalization.",
+                        }
+            except Exception as e:
+                # Fallback to rule-based if LLM fails
+                pass
         
-        Symptoms: {symptoms}
-        Patient Context: {patient_context or {}}
-        
-        Steps:
-        1. Parse and structure the symptom description
-        2. Identify key symptom patterns
-        3. Retrieve relevant clinical knowledge
-        4. Generate possible condition hypotheses
-        5. Assess urgency and severity
-        6. Provide structured recommendations
-        """
-        
-        # Execute the agent
-        state = await self.execute(task, context={"symptoms": symptoms, "patient_context": patient_context})
-        
-        # Retrieve relevant knowledge
-        knowledge = await self.retrieve_clinical_knowledge(symptoms, top_k=5)
-        
-        # Generate recommendation
-        confidence = await self.assess_confidence(
-            evidence=[item.get("content", "") for item in knowledge],
-            quality_indicators={"high_quality_source": True, "multiple_sources": len(knowledge) > 2},
-        )
-        
-        recommendation = await self.generate_recommendation(
-            recommendation_type=RecommendationType.DIAGNOSIS_HYPOTHESIS,
-            content=f"Based on symptom analysis, possible conditions include: [Generated by agent]",
-            confidence_score=confidence,
-            supporting_evidence=[item.get("content", "")[:200] for item in knowledge[:3]],
-            risks_and_warnings=[
-                "This is a preliminary hypothesis. Full diagnostic workup required.",
-                "Human physician review mandatory before any treatment decisions.",
-            ],
-        )
-        
+        # Fallback: rule-based parsing
+        tokens = [s.strip().lower() for s in text.replace(";", ",").split(",") if s.strip()]
+        output = {"symptoms": tokens, "note": "Structured for downstream support; not a diagnosis."}
+        confidence = 0.6 if tokens else 0.3
         return {
-            "state": state,
-            "recommendation": recommendation,
-            "knowledge_retrieved": len(knowledge),
+            "output": output,
+            "confidence": confidence,
+            "reasoning": "Parsed free-text symptoms into a clean list.",
         }
 

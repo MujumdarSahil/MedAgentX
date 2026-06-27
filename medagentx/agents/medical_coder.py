@@ -1,110 +1,108 @@
-"""
-Medical Coder Agent.
-
-Specialized in medical coding (ICD-10, CPT, HCPCS) and billing support.
-"""
-
 from typing import Any, Dict, List, Optional
+
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import (
-    AgentConfig,
-    RecommendationType,
-)
+from medagentx.core.types import AgentConfig, AgentCapabilities
+from medagentx.models.llm_engine import LLMPurpose
 
 
 class MedicalCoderAgent(SpecializedAgent):
-    """
-    Agent specialized in medical coding.
-    
-    Capabilities:
-    - ICD-10 diagnosis coding
-    - CPT procedure coding
-    - HCPCS code suggestions
-    - Coding compliance checks
-    - Billing optimization
-    """
-    
+    """Suggest ICD-10 style codes using the governance-safe tool."""
+
     def __init__(
         self,
         config: AgentConfig,
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
+        llm_engine: Optional[Any] = None,
     ):
-        """Initialize Medical Coder Agent."""
         if config.description == "":
-            config.description = (
-                "Provides medical coding support for ICD-10, CPT, and HCPCS codes. "
-                "Ensures coding accuracy and compliance."
-            )
-        super().__init__(config, tool_registry, governance_engine, knowledge_base)
-    
-    async def suggest_codes(
-        self,
-        diagnosis: str,
-        procedures: Optional[List[str]] = None,
-        patient_data: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Suggest medical codes for diagnosis and procedures.
-        
-        Args:
-            diagnosis: Diagnosis description
-            procedures: List of procedures performed
-            patient_data: Additional patient context
-            
-        Returns:
-            Coding suggestions with ICD-10, CPT, HCPCS codes
-        """
-        task = f"""
-        Suggest medical codes for:
-        - Diagnosis: {diagnosis}
-        - Procedures: {procedures or []}
-        - Patient Data: {patient_data or {}}
-        
-        Steps:
-        1. Identify relevant ICD-10 codes for diagnosis
-        2. Identify relevant CPT codes for procedures
-        3. Suggest HCPCS codes if applicable
-        4. Verify code accuracy and specificity
-        5. Check for coding compliance issues
-        6. Provide coding recommendations
-        """
-        
-        state = await self.execute(task, context={
-            "diagnosis": diagnosis,
-            "procedures": procedures,
-            "patient_data": patient_data,
-        })
-        
-        # Retrieve coding knowledge
-        query = f"ICD-10 {diagnosis} CPT {procedures}"
-        knowledge = await self.retrieve_clinical_knowledge(query, top_k=5)
-        
-        confidence = await self.assess_confidence(
-            evidence=[item.get("content", "") for item in knowledge],
-            quality_indicators={"high_quality_source": True},
+            config.description = "Maps supportive findings to mock ICD-10 suggestions."
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
+
+    async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = context or {}
+        symptoms: List[str] = ctx.get("symptoms", [])
+        symptom_text = ", ".join(symptoms)
+        suggestions: List[Dict[str, Any]] = []
+        tools_used: List[str] = []
+
+        if self.tool_registry:
+            try:
+                tools_used.append("icd10_coding")
+                suggestions = await self.tool_registry.execute_tool(
+                    tool_name="icd10_coding",
+                    arguments={"symptoms_text": symptom_text, "max_results": 5},
+                )
+            except Exception:
+                suggestions = []
+
+        formatted = [
+            {
+                "code": item.get("code"),
+                "description": item.get("description"),
+                "confidence": float(item.get("confidence", 0.55)),
+                "evidence": item.get("evidence"),
+                "matched_keywords": item.get("matched_keywords", []),
+            }
+            for item in suggestions
+        ]
+
+        # Optionally use LLM for code explanation
+        if self.llm_engine and self.llm_engine.is_available() and formatted:
+            try:
+                codes_text = "\n".join([f"{item['code']}: {item['description']}" for item in formatted[:3]])
+                prompt = f"""Explain the following ICD-10/CPT codes in simple terms for clinical reference.
+Codes:
+{codes_text}
+
+Return ONLY a JSON object with this structure:
+{{"explanations": [{{"code": "code", "explanation": "brief explanation"}}, ...]}}
+
+Remember: This is for explanation only, not diagnosis or treatment."""
+                
+                llm_response = await self.llm_engine.generate(
+                    prompt=prompt,
+                    purpose=LLMPurpose.CODE_EXPLANATION,
+                    system_prompt="You are a medical coding assistant. Explain codes for clinical reference only.",
+                    response_format={"type": "json_object"},
+                )
+                
+                # Update LLM usage tracking
+                self._last_llm_usage = {
+                    "model": llm_response.get("model"),
+                    "provider": self.llm_engine.provider.value,
+                    "purpose": LLMPurpose.CODE_EXPLANATION.value,
+                    "usage": llm_response.get("usage", {}),
+                }
+                
+                # Add explanations to formatted codes if available
+                if llm_response.get("structured_output"):
+                    explanations = llm_response["structured_output"].get("explanations", [])
+                    explanation_map = {exp.get("code"): exp.get("explanation") for exp in explanations}
+                    for item in formatted:
+                        if item["code"] in explanation_map:
+                            item["llm_explanation"] = explanation_map[item["code"]]
+            except Exception as e:
+                # Fallback if LLM fails
+                pass
+
+        disclaimer = (
+            "ICD-10 coding suggestions only; not a diagnosis or billing decision. "
+            "Requires clinician review and approval."
         )
-        
-        recommendation = await self.generate_recommendation(
-            recommendation_type=RecommendationType.CODING_SUGGESTION,
-            content=f"Coding suggestions for diagnosis and procedures: [Generated by agent]",
-            confidence_score=confidence,
-            supporting_evidence=[item.get("content", "")[:200] for item in knowledge],
-            risks_and_warnings=[
-                "Verify codes against official coding guidelines.",
-                "Ensure specificity requirements are met.",
-                "Review for compliance with payer requirements.",
-            ],
-        )
-        
+
+        output = {
+            "codes": formatted,
+            "disclaimer": disclaimer,
+            "evidence": [entry.get("evidence") for entry in formatted if entry.get("evidence")],
+        }
+        confidence = max([entry["confidence"] for entry in formatted], default=0.42)
         return {
-            "state": state,
-            "recommendation": recommendation,
-            "suggested_codes": {
-                "icd10": [],
-                "cpt": [],
-                "hcpc": [],
-            },
+            "output": output,
+            "confidence": confidence,
+            "reasoning": "Mapped structured symptoms to ICD-10 style codes via governed tool.",
+            "tools_used": tools_used,
         }
 

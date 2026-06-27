@@ -1,237 +1,134 @@
-"""
-Governance Engine for MedAgentX.
-
-Enforces safety, compliance, and clinical governance rules.
-"""
-
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from datetime import datetime
-import logging
 
-from medagentx.governance.safety_rules import (
-    SafetyRule,
-    ClinicalSafetyRule,
-    HumanApprovalRequiredRule,
-    DisclaimerRequiredRule,
-    ToolPermissionRule,
-    ConfidenceThresholdRule,
-)
-from medagentx.core.types import ToolCall, Recommendation, AgentStatus
+from medagentx.core.types import AgentCapabilities
 
-logger = logging.getLogger(__name__)
+
+class GovernanceException(Exception):
+    """Raised when governance policy is violated."""
+    pass
 
 
 class GovernanceEngine:
-    """
-    Governance engine that enforces safety and compliance rules.
-    
-    Responsibilities:
-    - Evaluate safety rules
-    - Enforce clinical compliance
-    - Check tool permissions
-    - Validate recommendations
-    - Audit logging
-    """
-    
+    """Enforce safety: no direct diagnosis or treatment; always human approval."""
+
     def __init__(self):
-        """Initialize governance engine with default rules."""
-        self._rules: List[SafetyRule] = []
-        self._audit_log: List[Dict[str, Any]] = []
+        self.audit_log: List[Dict[str, Any]] = []
+
+    def enforce(self, response: Dict[str, Any]) -> None:
+        outputs = str(response)
+        lower_out = outputs.lower()
         
-        # Add default clinical safety rules
-        self.add_rule(HumanApprovalRequiredRule())
-        self.add_rule(DisclaimerRequiredRule())
-        self.add_rule(ConfidenceThresholdRule(min_confidence=0.3))
-    
-    def add_rule(self, rule: SafetyRule) -> None:
-        """
-        Add a safety rule.
+        # Blocked phrases that suggest actual recommendations
+        # Note: We allow these words in negative contexts (e.g., "no treatment", "not treatment")
+        blocked_phrases = [
+            ("prescribe", None),  # Always block "prescribe" in any context
+            ("definitive diagnosis", None),
+            ("final diagnosis", None),
+            ("confirmed disease", None),
+            ("treatment plan", None),
+            # For "treatment", check that it's not in a negative context
+            ("treatment", ["no ", "not ", "does not", "do not", "cannot", "should not", "must not"]),
+        ]
         
-        Args:
-            rule: Safety rule to add
-        """
-        self._rules.append(rule)
-        logger.info(f"Added safety rule: {type(rule).__name__}")
-    
-    def remove_rule(self, rule_type: type) -> None:
-        """
-        Remove a safety rule by type.
-        
-        Args:
-            rule_type: Type of rule to remove
-        """
-        self._rules = [r for r in self._rules if not isinstance(r, rule_type)]
-        logger.info(f"Removed safety rule: {rule_type.__name__}")
-    
-    async def evaluate_all_rules(
-        self,
-        context: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Evaluate all safety rules.
-        
-        Args:
-            context: Context for rule evaluation
-            
-        Returns:
-            Dict with:
-                - all_passed: bool
-                - results: List of individual rule results
-                - errors: List of failed rules
-                - warnings: List of warnings
-        """
-        results = []
-        errors = []
-        warnings = []
-        
-        for rule in self._rules:
-            try:
-                result = await rule.evaluate(context)
-                results.append({
-                    "rule": type(rule).__name__,
-                    "result": result,
-                })
+        for phrase, allowed_contexts in blocked_phrases:
+            if phrase in lower_out:
+                # If this phrase has allowed negative contexts, check for them
+                if allowed_contexts:
+                    # Check all occurrences of the phrase
+                    phrase_pos = 0
+                    found_blockable = False
+                    while True:
+                        phrase_pos = lower_out.find(phrase, phrase_pos)
+                        if phrase_pos < 0:
+                            break
+                        
+                        # Look for negative context before the phrase (up to 50 chars before for broader context)
+                        context_start = max(0, phrase_pos - 50)
+                        context = lower_out[context_start:phrase_pos]
+                        
+                        # Check if this occurrence is in a negative context
+                        if not any(neg in context for neg in allowed_contexts):
+                            # Found occurrence without negative context - this is blockable
+                            found_blockable = True
+                            break
+                        
+                        phrase_pos += len(phrase)
+                    
+                    # If all occurrences were in negative contexts, allow it
+                    if not found_blockable:
+                        continue
                 
-                if not result.get("passed", False):
-                    if result.get("severity") == "critical" or result.get("severity") == "error":
-                        errors.append(result)
-                    else:
-                        warnings.append(result)
-            except Exception as e:
-                logger.error(f"Error evaluating rule {type(rule).__name__}: {e}", exc_info=True)
-                errors.append({
-                    "rule": type(rule).__name__,
-                    "error": str(e),
-                    "severity": "error",
-                })
-        
-        all_passed = len(errors) == 0
-        
-        evaluation_result = {
-            "all_passed": all_passed,
-            "results": results,
-            "errors": errors,
-            "warnings": warnings,
-            "timestamp": datetime.now(),
-        }
-        
-        # Log to audit trail
-        self._audit_log.append({
-            "timestamp": datetime.now(),
-            "type": "rule_evaluation",
-            "result": evaluation_result,
-            "context_summary": self._summarize_context(context),
-        })
-        
-        return evaluation_result
-    
-    async def check_tool_permission(
-        self,
-        agent_id: str,
-        tool_name: str,
-        tool_call: ToolCall,
-        allowed_tools: Optional[List[str]] = None,
-    ) -> bool:
+                # Phrase found and not in allowed negative context - block it
+                detail = f"Governance block: phrase '{phrase}' not allowed."
+                self.audit_log.append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "event": "governance_block",
+                        "reason": detail,
+                    }
+                )
+                raise ValueError(detail)
+
+        response["requires_human_approval"] = True
+        self.audit_log.append(
+            {"timestamp": datetime.now().isoformat(), "event": "governance_check", "result": "pass"}
+        )
+
+    def get_audit_log(self) -> List[Dict[str, Any]]:
+        return self.audit_log
+
+    def validate_agent(self, agent: Any, capabilities: AgentCapabilities) -> None:
         """
-        Check if an agent has permission to use a tool.
+        Validate agent capabilities against governance policy.
+        Hard-blocks: diagnosis, prescription, governance override.
         
         Args:
-            agent_id: Agent ID
-            tool_name: Tool name
-            tool_call: Tool call object
-            allowed_tools: List of allowed tool names for this agent
+            agent: Agent instance to validate
+            capabilities: Agent capabilities
             
-        Returns:
-            True if allowed, False otherwise
+        Raises:
+            GovernanceException: If capabilities violate policy
         """
-        # Create tool permission rule for this check
-        rule = ToolPermissionRule()
+        violations = []
         
-        context = {
+        # Hard-block: diagnosis capability
+        if capabilities.can_diagnose:
+            violations.append("Diagnosis capability is prohibited")
+        
+        # Hard-block: prescription capability
+        if capabilities.can_prescribe:
+            violations.append("Prescription capability is prohibited")
+        
+        # Hard-block: governance override (requires_human_approval must be True)
+        if not capabilities.requires_human_approval:
+            violations.append("Human approval requirement cannot be disabled")
+        
+        if violations:
+            violation_msg = "; ".join(violations)
+            agent_id = "unknown"
+            if hasattr(agent, "config") and agent.config:
+                agent_id = getattr(agent.config, "agent_id", "unknown")
+            self.audit_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "event": "governance_validation_failed",
+                "agent_id": agent_id,
+                "violations": violations,
+            })
+            raise GovernanceException(f"Governance block: {violation_msg}")
+        
+        agent_id = "unknown"
+        if hasattr(agent, "config") and agent.config:
+            agent_id = getattr(agent.config, "agent_id", "unknown")
+        self.audit_log.append({
+            "timestamp": datetime.now().isoformat(),
+            "event": "governance_validation_passed",
             "agent_id": agent_id,
-            "tool_call": tool_call,
-            "allowed_tools": allowed_tools or [],
-        }
-        
-        result = await rule.evaluate(context)
-        
-        # Log to audit trail
-        self._audit_log.append({
-            "timestamp": datetime.now(),
-            "type": "tool_permission_check",
-            "agent_id": agent_id,
-            "tool_name": tool_name,
-            "allowed": result.get("passed", False),
+            "capabilities": {
+                "can_diagnose": capabilities.can_diagnose,
+                "can_prescribe": capabilities.can_prescribe,
+                "can_use_tools": capabilities.can_use_tools,
+                "requires_human_approval": capabilities.requires_human_approval,
+            },
         })
-        
-        return result.get("passed", False)
-    
-    async def validate_recommendation(
-        self,
-        recommendation: Recommendation,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Validate a clinical recommendation.
-        
-        Args:
-            recommendation: Recommendation to validate
-            context: Additional context
-            
-        Returns:
-            Validation result
-        """
-        eval_context = {
-            "recommendations": [recommendation],
-            "outputs": [recommendation.content],
-            **(context or {}),
-        }
-        
-        result = await self.evaluate_all_rules(eval_context)
-        
-        # Log to audit trail
-        self._audit_log.append({
-            "timestamp": datetime.now(),
-            "type": "recommendation_validation",
-            "recommendation_type": recommendation.recommendation_type,
-            "confidence": recommendation.confidence_score,
-            "validation_result": result,
-        })
-        
-        return result
-    
-    def get_audit_log(
-        self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        log_type: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get audit log entries.
-        
-        Args:
-            start_time: Start time filter
-            end_time: End time filter
-            log_type: Type filter (e.g., "tool_permission_check")
-            
-        Returns:
-            List of audit log entries
-        """
-        filtered_logs = self._audit_log
-        
-        if start_time:
-            filtered_logs = [log for log in filtered_logs if log["timestamp"] >= start_time]
-        
-        if end_time:
-            filtered_logs = [log for log in filtered_logs if log["timestamp"] <= end_time]
-        
-        if log_type:
-            filtered_logs = [log for log in filtered_logs if log.get("type") == log_type]
-        
-        return filtered_logs
-    
-    def _summarize_context(self, context: Dict[str, Any]) -> str:
-        """Summarize context for audit logging."""
-        keys = list(context.keys())
-        return f"Keys: {', '.join(keys[:5])}"
 

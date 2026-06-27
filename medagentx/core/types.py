@@ -5,6 +5,7 @@ This module defines the foundational data structures used throughout
 the platform for agents, tools, messages, and state management.
 """
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
@@ -149,4 +150,34 @@ class AgentState(BaseModel):
     current_iteration: int = 0
     metadata: Dict[str, Any] = Field(default_factory=dict)
     last_updated: datetime = Field(default_factory=datetime.now)
+
+
+@dataclass
+class AgentCapabilities:
+    """Agent capability constraints for policy enforcement."""
+    can_diagnose: bool = False
+    can_prescribe: bool = False
+    can_use_tools: bool = True
+    requires_human_approval: bool = True
+
+
+@dataclass
+class AgentTrace:
+    agent_name: str
+    input: Any
+    plan: Any
+    tools_used: List[str] = field(default_factory=list)
+    evidence: Any = None
+    output: Any = None
+    confidence: Optional[float] = None
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    visualization_metadata: Optional[Dict[str, Any]] = None
+    llm_usage: Optional[Dict[str, Any]] = None  # LLM usage metadata: model, purpose, tokens
+
+
+@dataclass
+class WorkflowTrace:
+    workflow_id: str
+    events: List[AgentTrace] = field(default_factory=list)
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 

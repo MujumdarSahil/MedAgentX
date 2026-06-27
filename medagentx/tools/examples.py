@@ -6,6 +6,7 @@ These are example implementations of medical tools that can be used by agents.
 
 from typing import Any, Dict
 from medagentx.tools.base_tool import BaseTool, ToolSchema
+from medagentx.knowledge.medical_coding import MedicalCodingKB
 
 
 class SymptomKnowledgeRetriever(BaseTool):
@@ -159,4 +160,42 @@ class MedicalCodeLookup(BaseTool):
                 }
             ],
         }
+
+
+class ICD10CodingTool(BaseTool):
+    """
+    Governance-friendly ICD-10 code recommender (recommendation only).
+    """
+
+    def __init__(self, knowledge_base: MedicalCodingKB):
+        schema = ToolSchema(
+            name="icd10_coding",
+            description="Suggest ICD-10 style codes from symptom text (support only).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "symptoms_text": {
+                        "type": "string",
+                        "description": "Free-text symptom description",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of codes to return",
+                        "default": 5,
+                    },
+                },
+                "required": ["symptoms_text"],
+            },
+            returns={"type": "array"},
+            is_read_only=True,
+        )
+        super().__init__(tool_id="icd10_coding", schema=schema, created_by="system")
+        self.knowledge_base = knowledge_base
+
+    async def execute(self, arguments: Dict[str, Any]) -> Any:
+        """Return ICD-10 recommendations (no diagnosis)."""
+        symptoms_text = arguments.get("symptoms_text", "")
+        max_results = int(arguments.get("max_results", 5) or 5)
+        kb_results = self.knowledge_base.search(symptoms_text)
+        return kb_results[:max_results]
 

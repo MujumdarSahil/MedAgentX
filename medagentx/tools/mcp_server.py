@@ -150,3 +150,49 @@ class UserMCPServer(MCPServer):
         self._initialized = True
         logger.info(f"User MCP server {self.config.server_id} initialized")
 
+
+# Minimal ICD-10 MCP server with mock data
+ICD10_DB = {
+    "fever": [{"code": "R50.9", "desc": "Fever, unspecified"}],
+    "cough": [{"code": "R05", "desc": "Cough"}],
+}
+
+
+class ICD10LookupTool(BaseTool):
+    def __init__(self, tool_id: str = "icd10_lookup"):
+        schema = ToolSchema(
+            name="lookup_icd10",
+            description="Return mock ICD-10 codes matching provided symptoms.",
+            parameters={"type": "object", "properties": {"symptoms": {"type": "array"}}},
+            returns={"type": "array"},
+        )
+        super().__init__(tool_id=tool_id, schema=schema, created_by="system")
+
+    async def execute(self, arguments: Dict[str, Any]) -> Any:
+        symptoms = arguments.get("symptoms") or []
+        matches = []
+        for symptom in symptoms:
+            key = str(symptom).lower()
+            for term, records in ICD10_DB.items():
+                if term in key:
+                    matches.extend(records)
+        return [{"code": m["code"], "description": m["desc"]} for m in matches]
+
+
+class ICD10MCPServer(MCPServer):
+    """Day-2 feature: minimal mock ICD-10 MCP server."""
+
+    def __init__(self):
+        config = MCPServerConfig(
+            server_id="icd10_mcp",
+            server_name="ICD10 MCP",
+            description="Mock ICD-10 lookup service",
+            created_by="system",
+        )
+        super().__init__(config)
+
+    async def initialize(self) -> None:
+        if self._initialized:
+            return
+        self.register_tool(ICD10LookupTool())
+        self._initialized = True

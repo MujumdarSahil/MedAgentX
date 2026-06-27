@@ -1,100 +1,146 @@
-"""
-Diagnosis Support Agent.
-
-Provides differential diagnosis support and diagnostic reasoning assistance.
-"""
-
 from typing import Any, Dict, List, Optional
+import json
+
 from medagentx.agents.base_template import SpecializedAgent
-from medagentx.core.types import (
-    AgentConfig,
-    RecommendationType,
-)
+from medagentx.core.types import AgentConfig, AgentCapabilities
+from medagentx.models.llm_engine import LLMPurpose
 
 
 class DiagnosisSupportAgent(SpecializedAgent):
-    """
-    Agent specialized in providing differential diagnosis support.
-    
-    Capabilities:
-    - Generate differential diagnosis lists
-    - Rank conditions by likelihood
-    - Suggest additional diagnostic tests
-    - Provide clinical reasoning support
-    """
-    
+    """Supportive-only differential suggestions with evidence."""
+
     def __init__(
         self,
         config: AgentConfig,
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
+        llm_engine: Optional[Any] = None,
     ):
-        """Initialize Diagnosis Support Agent."""
         if config.description == "":
-            config.description = (
-                "Provides differential diagnosis support and diagnostic reasoning. "
-                "Generates ranked lists of possible conditions with supporting evidence."
-            )
-        super().__init__(config, tool_registry, governance_engine, knowledge_base)
-    
-    async def generate_differential_diagnosis(
-        self,
-        symptoms: str,
-        patient_data: Dict[str, Any],
-        existing_tests: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate a differential diagnosis.
+            config.description = "Supportive reasoning only; no definitive diagnosis."
+        super().__init__(config, tool_registry, governance_engine, knowledge_base, capabilities=capabilities, llm_engine=llm_engine)
+
+    async def plan(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Generate reasoning plan, optionally using LLM."""
+        ctx = context or {}
+        symptoms: List[str] = ctx.get("symptoms", [])
         
-        Args:
-            symptoms: Symptom description
-            patient_data: Patient clinical data
-            existing_tests: Already performed tests
-            
-        Returns:
-            Differential diagnosis with ranked conditions
-        """
-        task = f"""
-        Generate a differential diagnosis based on:
-        - Symptoms: {symptoms}
-        - Patient Data: {patient_data}
-        - Existing Tests: {existing_tests or []}
+        # Try LLM for reasoning plan generation if available
+        if self.llm_engine and self.llm_engine.is_available():
+            try:
+                prompt = f"""Generate a reasoning plan for supportive differential diagnosis review.
+Symptoms: {', '.join(symptoms) if symptoms else 'general symptoms'}
+
+Return ONLY a JSON object with this structure:
+{{"steps": ["step1", "step2", ...], "reasoning": "brief explanation"}}
+
+Remember: This is SUPPORTIVE reasoning only. Do not provide definitive diagnosis."""
+                
+                llm_response = await self.llm_engine.generate(
+                    prompt=prompt,
+                    purpose=LLMPurpose.REASONING_PLAN,
+                    system_prompt="You are a medical reasoning assistant. Generate supportive reasoning plans only. Never provide definitive diagnosis.",
+                    response_format={"type": "json_object"},
+                )
+                
+                # Update LLM usage tracking
+                self._last_llm_usage = {
+                    "model": llm_response.get("model"),
+                    "provider": self.llm_engine.provider.value,
+                    "purpose": LLMPurpose.REASONING_PLAN.value,
+                    "usage": llm_response.get("usage", {}),
+                }
+                
+                # Parse structured output
+                if llm_response.get("structured_output"):
+                    structured = llm_response["structured_output"]
+                    return {
+                        "steps": structured.get("steps", ["review_input", "apply_rules", "prepare_output"]),
+                        "reasoning": structured.get("reasoning", "LLM-generated reasoning plan"),
+                    }
+            except Exception as e:
+                # Fallback to default plan
+                pass
         
-        Steps:
-        1. Analyze symptom patterns
-        2. Consider patient demographics and history
-        3. Retrieve relevant diagnostic guidelines
-        4. Generate ranked list of possible conditions
-        5. Suggest additional diagnostic tests
-        6. Provide clinical reasoning
-        """
-        
-        state = await self.execute(task, context={"symptoms": symptoms, "patient_data": patient_data})
-        
-        # Retrieve diagnostic knowledge
-        query = f"{symptoms} differential diagnosis"
-        knowledge = await self.retrieve_clinical_knowledge(query, top_k=10)
-        
-        confidence = await self.assess_confidence(
-            evidence=[item.get("content", "") for item in knowledge],
-            quality_indicators={"multiple_sources": len(knowledge) > 5},
-        )
-        
-        recommendation = await self.generate_recommendation(
-            recommendation_type=RecommendationType.DIFFERENTIAL_DIAGNOSIS,
-            content="Differential diagnosis with ranked conditions: [Generated by agent]",
-            confidence_score=confidence,
-            supporting_evidence=[item.get("content", "")[:200] for item in knowledge[:5]],
-            risks_and_warnings=[
-                "This is decision support only. Final diagnosis requires physician judgment.",
-                "Consider all possibilities, not just the top-ranked conditions.",
-            ],
-        )
-        
+        # Fallback: default plan
+        return {"steps": ["review_input", "apply_rules", "prepare_output"], "reasoning": f"Planning for {task}"}
+
+    async def act(self, plan: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = context or {}
+        symptoms: List[str] = ctx.get("symptoms", [])
+        query = ", ".join(symptoms) if symptoms else "general symptoms"
+        knowledge = await (self.knowledge_base.retrieve(query) if self.knowledge_base else [])
+        evidence = [item.get("content", "") for item in knowledge]
+
+        # Optionally use LLM for evidence summarization
+        if self.llm_engine and self.llm_engine.is_available() and evidence:
+            try:
+                evidence_text = "\n".join(evidence[:5])  # Limit to top 5
+                prompt = f"""Summarize the following clinical evidence for supportive reasoning.
+Symptoms: {', '.join(symptoms)}
+Evidence:
+{evidence_text}
+
+Return ONLY a JSON object with this structure:
+{{"summary": "brief summary", "key_points": ["point1", "point2", ...]}}
+
+Remember: This is SUPPORTIVE reasoning only. Do not provide definitive diagnosis."""
+                
+                llm_response = await self.llm_engine.generate(
+                    prompt=prompt,
+                    purpose=LLMPurpose.EVIDENCE_SUMMARIZATION,
+                    system_prompt="You are a medical evidence summarizer. Summarize evidence for supportive reasoning only.",
+                    response_format={"type": "json_object"},
+                )
+                
+                # Update LLM usage tracking (merge with existing if any)
+                if self._last_llm_usage:
+                    # Multiple LLM calls in same agent execution
+                    self._last_llm_usage["additional_calls"] = self._last_llm_usage.get("additional_calls", [])
+                    self._last_llm_usage["additional_calls"].append({
+                        "purpose": LLMPurpose.EVIDENCE_SUMMARIZATION.value,
+                        "usage": llm_response.get("usage", {}),
+                    })
+                else:
+                    self._last_llm_usage = {
+                        "model": llm_response.get("model"),
+                        "provider": self.llm_engine.provider.value,
+                        "purpose": LLMPurpose.EVIDENCE_SUMMARIZATION.value,
+                        "usage": llm_response.get("usage", {}),
+                    }
+                
+                # Use LLM summary if available
+                if llm_response.get("structured_output"):
+                    structured = llm_response["structured_output"]
+                    evidence = [structured.get("summary", "")] + structured.get("key_points", [])
+            except Exception as e:
+                # Fallback to original evidence
+                pass
+
+        conditions = []
+        if "cough" in query or "fever" in query:
+            conditions.append("Upper respiratory infection")
+            conditions.append("Influenza")
+        if not conditions:
+            conditions.append("Nonspecific presentation")
+
+        statements = [
+            f"{cond} may indicate involvement given symptoms: {', '.join(symptoms)}"
+            for cond in conditions
+        ]
+
+        output = {
+            "conditions": conditions,
+            "statements": statements,
+            "evidence": evidence,
+            "disclaimer": "Support only; requires clinician confirmation.",
+        }
+        confidence = 0.55 if evidence else 0.45
         return {
-            "state": state,
-            "recommendation": recommendation,
-            "differential_diagnosis": "Ranked list of conditions",  # Would be populated by LLM
+            "output": output,
+            "confidence": confidence,
+            "reasoning": "Generated supportive possibilities without diagnostic conclusion.",
         }
 

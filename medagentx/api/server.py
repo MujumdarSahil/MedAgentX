@@ -18,13 +18,98 @@ from typing import Optional, Dict, Any, List
 import logging
 from pathlib import Path
 
-from medagentx.main import MedAgentXPlatform
 from medagentx.core.types import AgentConfig
+from medagentx.core.workflow import RecommendationWorkflow
+from medagentx.governance.engine import GovernanceEngine
+from medagentx.knowledge.knowledge_base import KnowledgeBase
+from medagentx.knowledge.medical_coding import MedicalCodingKB
+from medagentx.tools.tool_registry import ToolRegistry
+from medagentx.tools.examples import ICD10CodingTool
+from medagentx.agents import (
+    SymptomAnalyzerAgent,
+    DiagnosisSupportAgent,
+    MedicalCoderAgent,
+    RiskScorerAgent,
+)
 
 logger = logging.getLogger(__name__)
 
-# Initialize platform (singleton)
-platform = MedAgentXPlatform()
+# Global state for API (initialized lazily)
+_platform_state = {
+    "governance": None,
+    "knowledge": None,
+    "coding_kb": None,
+    "tool_registry": None,
+    "agents": {},
+    "workflow": None,
+}
+
+
+def get_platform():
+    """Initialize and return platform components."""
+    if _platform_state["governance"] is None:
+        _platform_state["governance"] = GovernanceEngine()
+        _platform_state["knowledge"] = KnowledgeBase()
+        _platform_state["coding_kb"] = MedicalCodingKB()
+        _platform_state["tool_registry"] = ToolRegistry()
+        _platform_state["tool_registry"].register_tool(ICD10CodingTool(_platform_state["coding_kb"]))
+        
+        # Create default agents
+        _platform_state["agents"] = {
+            "symptom_analyzer": SymptomAnalyzerAgent(
+                AgentConfig(
+                    agent_id="symptom_analyzer",
+                    agent_name="Symptom Analyzer",
+                    description="Symptom structuring only; no diagnosis.",
+                    created_by="api",
+                ),
+                _platform_state["tool_registry"],
+                _platform_state["governance"],
+                _platform_state["knowledge"],
+            ),
+            "diagnosis_support": DiagnosisSupportAgent(
+                AgentConfig(
+                    agent_id="diagnosis_support",
+                    agent_name="Diagnosis Support",
+                    description="Supportive reasoning only; no definitive diagnosis.",
+                    created_by="api",
+                ),
+                _platform_state["tool_registry"],
+                _platform_state["governance"],
+                _platform_state["knowledge"],
+            ),
+            "medical_coder": MedicalCoderAgent(
+                AgentConfig(
+                    agent_id="medical_coder",
+                    agent_name="Medical Coder",
+                    description="Maps supportive findings to ICD-10/CPT suggestions.",
+                    created_by="api",
+                ),
+                _platform_state["tool_registry"],
+                _platform_state["governance"],
+                _platform_state["knowledge"],
+            ),
+            "risk_scorer": RiskScorerAgent(
+                AgentConfig(
+                    agent_id="risk_scorer",
+                    agent_name="Risk Scorer",
+                    description="Numeric risk scoring support only; no diagnosis or treatment.",
+                    created_by="api",
+                ),
+                _platform_state["tool_registry"],
+                _platform_state["governance"],
+                _platform_state["knowledge"],
+            ),
+        }
+        
+        # Create workflow
+        _platform_state["workflow"] = RecommendationWorkflow(
+            workflow_id="api_workflow",
+            agents=_platform_state["agents"],
+            governance_engine=_platform_state["governance"],
+        )
+    
+    return _platform_state
 
 app = FastAPI(
     title="MedAgentX API",
@@ -102,6 +187,7 @@ async def health():
 @app.get("/api/agents")
 async def list_agents():
     """List all registered agents."""
+    platform = get_platform()
     return {
         "agents": [
             {
@@ -109,7 +195,7 @@ async def list_agents():
                 "agent_name": agent.config.agent_name,
                 "description": agent.config.description,
             }
-            for agent in platform.agents.values()
+            for agent in platform["agents"].values()
         ]
     }
 
@@ -118,22 +204,13 @@ async def list_agents():
 async def create_agent(request: AgentCreateRequest):
     """Create a new agent."""
     try:
-        from medagentx.agents import (
-            SymptomAnalyzerAgent,
-            DiagnosisSupportAgent,
-            MedicalCoderAgent,
-            PrescriptionReviewAgent,
-            ClinicalGuidelineAgent,
-            RiskAssessmentAgent,
-        )
+        platform = get_platform()
         
         agent_map = {
             "symptom_analyzer": SymptomAnalyzerAgent,
             "diagnosis_support": DiagnosisSupportAgent,
             "medical_coder": MedicalCoderAgent,
-            "prescription_reviewer": PrescriptionReviewAgent,
-            "clinical_guideline": ClinicalGuidelineAgent,
-            "risk_assessor": RiskAssessmentAgent,
+            "risk_scorer": RiskScorerAgent,
         }
         
         agent_class = agent_map.get(request.agent_type)
@@ -151,12 +228,12 @@ async def create_agent(request: AgentCreateRequest):
         
         agent = agent_class(
             config=config,
-            tool_registry=platform.tool_registry,
-            governance_engine=platform.governance_engine,
-            knowledge_base=platform.knowledge_base,
+            tool_registry=platform["tool_registry"],
+            governance_engine=platform["governance"],
+            knowledge_base=platform["knowledge"],
         )
         
-        platform.register_agent(agent)
+        platform["agents"][request.agent_id] = agent
         
         return {"status": "created", "agent_id": request.agent_id}
     
@@ -168,30 +245,21 @@ async def create_agent(request: AgentCreateRequest):
 @app.post("/api/agents/{agent_id}/execute")
 async def execute_agent_task(agent_id: str, request: TaskRequest):
     """Execute a task with an agent."""
-    agent = platform.get_agent(agent_id)
+    platform = get_platform()
+    agent = platform["agents"].get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
     
     try:
-        state = await agent.execute(
-            task=request.task,
-            context=request.context,
-            user_id="api_user",
-        )
+        result = await agent.run(request.task, context=request.context)
         
         return {
             "agent_id": agent_id,
-            "status": state.status.value,
-            "recommendations": [
-                {
-                    "type": rec.recommendation_type.value,
-                    "content": rec.content,
-                    "confidence": rec.confidence.value,
-                    "confidence_score": rec.confidence_score,
-                    "requires_approval": rec.requires_human_approval,
-                }
-                for rec in state.recommendations
-            ],
+            "status": "completed",
+            "output": result.get("output"),
+            "confidence": result.get("confidence"),
+            "reasoning": result.get("reasoning"),
+            "requires_human_approval": result.get("requires_human_approval", True),
         }
     
     except Exception as e:
@@ -202,46 +270,21 @@ async def execute_agent_task(agent_id: str, request: TaskRequest):
 @app.post("/api/analyze-symptoms")
 async def analyze_symptoms(request: SymptomAnalysisRequest):
     """Analyze symptoms using SymptomAnalyzerAgent."""
-    # Find or create symptom analyzer agent
-    agent_id = "symptom_analyzer_default"
-    agent = platform.get_agent(agent_id)
+    platform = get_platform()
+    agent = platform["agents"].get("symptom_analyzer")
     
     if not agent:
-        from medagentx.agents import SymptomAnalyzerAgent
-        config = AgentConfig(
-            agent_id=agent_id,
-            agent_name="Symptom Analyzer",
-            description="Analyzes patient symptoms",
-            created_by="api_user",
-        )
-        agent = SymptomAnalyzerAgent(
-            config=config,
-            tool_registry=platform.tool_registry,
-            governance_engine=platform.governance_engine,
-            knowledge_base=platform.knowledge_base,
-        )
-        platform.register_agent(agent)
+        raise HTTPException(status_code=500, detail="Symptom analyzer agent not available")
     
     try:
-        result = await agent.analyze_symptoms(
-            symptoms=request.symptoms,
-            patient_context=request.patient_context,
-        )
+        result = await agent.run(request.symptoms, context={"patient_context": request.patient_context})
         
         return {
             "status": "success",
-            "recommendations": [
-                {
-                    "type": rec.recommendation_type.value,
-                    "content": rec.content,
-                    "confidence": rec.confidence.value,
-                    "confidence_score": rec.confidence_score,
-                    "supporting_evidence": rec.supporting_evidence,
-                    "risks_and_warnings": rec.risks_and_warnings,
-                    "requires_approval": rec.requires_human_approval,
-                }
-                for rec in result["state"].recommendations
-            ],
+            "output": result.get("output"),
+            "confidence": result.get("confidence"),
+            "reasoning": result.get("reasoning"),
+            "requires_human_approval": result.get("requires_human_approval", True),
         }
     
     except Exception as e:
@@ -252,7 +295,8 @@ async def analyze_symptoms(request: SymptomAnalysisRequest):
 @app.get("/api/tools")
 async def list_tools():
     """List all registered tools."""
-    tools = platform.tool_registry.list_tools()
+    platform = get_platform()
+    tools = platform["tool_registry"].list_tools()
     return {
         "tools": [
             {
@@ -261,6 +305,41 @@ async def list_tools():
                 "description": tool.schema.description,
             }
             for tool in tools
+        ]
+    }
+
+
+@app.post("/api/recommend")
+async def recommend(request: SymptomAnalysisRequest):
+    """Run full recommendation workflow."""
+    try:
+        platform = get_platform()
+        workflow = platform["workflow"]
+        
+        # Run workflow
+        result = await workflow.run(request.symptoms)
+        
+        return {
+            "status": "success",
+            "result": result,
+            "requires_human_approval": result.get("requires_human_approval", True),
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in recommendation workflow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows")
+async def list_workflows():
+    """List available workflows."""
+    return {
+        "workflows": [
+            {
+                "workflow_id": "recommendation_workflow",
+                "name": "Recommendation Workflow",
+                "description": "Full symptom analysis, diagnosis support, coding, and risk assessment",
+            }
         ]
     }
 

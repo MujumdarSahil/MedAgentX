@@ -118,3 +118,110 @@ The platform includes multiple layers of risk mitigation:
 4. **Tool Level**: Permission checks
 5. **Knowledge Level**: Evidence-based retrieval
 
+## Regulatory & Clinical Safety Positioning
+
+### Clinical Decision Support (CDS) Classification
+
+MedAgentX is designed and positioned as **Clinical Decision Support (CDS) software**, not a diagnostic or treatment system. This classification is architecturally enforced and cannot be overridden.
+
+**Key Distinctions**:
+
+- **CDS (MedAgentX)**: Provides information, recommendations, and supportive reasoning to assist clinicians in making decisions
+- **Diagnostic System**: Makes autonomous diagnostic determinations without human oversight
+- **Treatment System**: Prescribes or administers treatments without human approval
+
+MedAgentX explicitly does **not** perform diagnosis or treatment. All outputs are recommendations that require human clinician review and approval.
+
+### Mandatory Human Approval Guarantees
+
+MedAgentX enforces human approval at multiple architectural levels:
+
+1. **Agent Capability Constraints**: All agents are initialized with `requires_human_approval=True`, which cannot be disabled without modifying source code
+2. **Workflow-Level Enforcement**: The `RecommendationWorkflow` sets `requires_human_approval=True` in all responses
+3. **Governance Engine Validation**: The `GovernanceEngine.enforce()` method validates that human approval is required and blocks outputs that attempt to bypass this requirement
+4. **Type System Enforcement**: The `AgentCapabilities` dataclass makes human approval a mandatory field, preventing unsafe configurations
+
+**Architectural Guarantee**: There is no code path in MedAgentX that allows autonomous decision-making without human approval. This is enforced at the type system level, not through runtime checks that could be bypassed.
+
+### No Autonomous Treatment or Prescription
+
+MedAgentX architecturally prevents autonomous treatment or prescription through:
+
+1. **Capability Restrictions**: All agents have `can_prescribe=False` by default, and this capability is validated during agent initialization
+2. **Governance Blocking**: The `GovernanceEngine` blocks outputs containing phrases like "prescribe", "treatment plan", "definitive diagnosis"
+3. **Tool Restrictions**: Medical coding tools provide suggestions only, not billing or treatment decisions
+4. **Output Disclaimers**: All outputs include explicit disclaimers stating that recommendations require clinician review
+
+**Example Blocking Behavior**:
+```python
+# Attempt to generate prescription output
+response = {"output": "Prescribe antibiotics for patient"}
+
+# Governance engine blocks this
+governance.enforce(response)  # Raises ValueError: "Governance block: phrase 'prescribe' not allowed."
+```
+
+### Offline Learning Only (No Live Model Drift)
+
+MedAgentX is designed for **offline learning and deployment**, not continuous online learning:
+
+- **Static Model Configuration**: Agents use fixed model configurations (e.g., `model_name="gpt-4"`, `temperature=0.3`) that do not change during runtime
+- **No Online Fine-Tuning**: The system does not perform online fine-tuning or model updates during clinical use
+- **Deterministic Workflows**: Workflow behavior is deterministic and traceable, preventing unexpected model drift
+- **Versioned Deployments**: Model updates require explicit versioning and redeployment, not automatic updates
+
+**Rationale**: Clinical CDS systems must maintain consistent behavior for regulatory compliance and patient safety. Online learning introduces risks of:
+- Unpredictable model behavior changes
+- Loss of auditability (model state changes are difficult to trace)
+- Regulatory non-compliance (unclear which model version made which decision)
+
+MedAgentX's offline-only approach ensures that system behavior is stable, traceable, and compliant with regulatory requirements for medical software.
+
+### Alignment with FDA SaMD CDS Guidance
+
+MedAgentX's architecture aligns with the FDA's guidance for Software as a Medical Device (SaMD) in the CDS category (high-level, non-legal positioning):
+
+1. **Human Oversight Requirement**: FDA guidance emphasizes that CDS systems must require human oversight. MedAgentX enforces this architecturally through mandatory human approval gates.
+
+2. **Transparency and Explainability**: FDA guidance requires CDS systems to provide evidence and reasoning for recommendations. MedAgentX includes:
+   - Evidence fields in all agent outputs
+   - RAG-retrieved knowledge as supporting evidence
+   - Confidence scores and disclaimers
+   - Complete traceability through `AgentTrace`
+
+3. **Safety and Effectiveness**: FDA guidance requires CDS systems to demonstrate safety mechanisms. MedAgentX provides:
+   - Architectural safety constraints (capability restrictions)
+   - Governance engine validation
+   - Audit logging for compliance
+   - Deterministic replay for validation
+
+4. **Non-Diagnostic Positioning**: FDA guidance distinguishes CDS from diagnostic systems. MedAgentX explicitly positions itself as CDS, not diagnosis, through:
+   - Architectural blocks on diagnostic capabilities
+   - Output disclaimers stating "supportive reasoning only"
+   - Mandatory human approval for all recommendations
+
+**Important Note**: This alignment discussion is high-level and conceptual. Actual FDA regulatory submission requires:
+- Formal regulatory review
+- Clinical validation studies
+- Quality management system (QMS) documentation
+- Risk management documentation
+- Legal and regulatory counsel
+
+MedAgentX's architecture is designed to support regulatory compliance, but formal FDA clearance or approval requires additional steps beyond system design.
+
+### Clinical Safety Positioning Summary
+
+MedAgentX is positioned as:
+
+- ✅ **Clinical Decision Support (CDS)**: Provides recommendations to assist clinicians
+- ✅ **Human-Overseen**: Mandatory human approval for all outputs
+- ✅ **Non-Diagnostic**: Does not perform autonomous diagnosis
+- ✅ **Non-Prescriptive**: Does not prescribe or treat autonomously
+- ✅ **Auditable**: Complete traceability and deterministic replay
+- ✅ **Stable**: Offline learning only, no live model drift
+- ❌ **Not a Diagnostic System**: Does not make diagnostic determinations
+- ❌ **Not a Treatment System**: Does not prescribe or administer treatments
+- ❌ **Not Autonomous**: Cannot operate without human oversight
+
+This positioning is architecturally enforced and cannot be changed without modifying the core system code, ensuring that MedAgentX remains a safe, compliant CDS platform.
+

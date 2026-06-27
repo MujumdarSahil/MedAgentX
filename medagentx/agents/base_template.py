@@ -14,7 +14,9 @@ from medagentx.core.types import (
     Recommendation,
     RecommendationType,
     ClinicalConfidence,
+    AgentCapabilities,
 )
+from medagentx.governance.engine import GovernanceException
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ class SpecializedAgent(BaseAgent):
         tool_registry: Optional[Any] = None,
         governance_engine: Optional[Any] = None,
         knowledge_base: Optional[Any] = None,
+        capabilities: Optional[AgentCapabilities] = None,
+        llm_engine: Optional[Any] = None,
     ):
         """
         Initialize specialized agent.
@@ -45,9 +49,16 @@ class SpecializedAgent(BaseAgent):
             tool_registry: Tool registry
             governance_engine: Governance engine
             knowledge_base: Knowledge base for retrieval
+            capabilities: Agent capabilities (defaults to safe restrictions)
+            llm_engine: Optional LLM engine for reasoning
         """
-        super().__init__(config, tool_registry, governance_engine)
+        super().__init__(config, tool_registry, governance_engine, llm_engine)
         self.knowledge_base = knowledge_base
+        self.capabilities = capabilities or AgentCapabilities()
+        
+        # Validate capabilities on initialization
+        if self.governance_engine:
+            self.governance_engine.validate_agent(self, self.capabilities)
     
     async def generate_recommendation(
         self,
@@ -156,4 +167,31 @@ class SpecializedAgent(BaseAgent):
         
         confidence = min(base_confidence + evidence_bonus + quality_bonus, 1.0)
         return confidence
+    
+    async def analyze(self, input_data: Any) -> Dict[str, Any]:
+        """
+        User-defined analysis logic. Override this method in custom agents.
+        
+        Args:
+            input_data: Input to analyze
+            
+        Returns:
+            Analysis result dictionary
+        """
+        return {
+            "output": {},
+            "confidence": 0.5,
+            "reasoning": "Base analysis placeholder",
+        }
+    
+    async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Run agent with capability enforcement.
+        """
+        # Enforce capabilities before execution
+        if self.governance_engine:
+            self.governance_engine.validate_agent(self, self.capabilities)
+        
+        # Call parent run method
+        return await super().run(task, context)
 

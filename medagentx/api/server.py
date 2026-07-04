@@ -178,6 +178,25 @@ app.add_middleware(
 )
 
 
+# OpenTelemetry middleware to trace requests end-to-end
+@app.middleware("http")
+async def otel_middleware(request, call_next):
+    from medagentx.core.telemetry import tracer
+    from opentelemetry import trace
+    
+    with tracer.start_as_current_span(
+        f"http_{request.method}_{request.url.path}",
+        kind=trace.SpanKind.SERVER
+    ) as span:
+        span.set_attribute("http.method", request.method)
+        span.set_attribute("http.url", str(request.url))
+        
+        response = await call_next(request)
+        
+        span.set_attribute("http.status_code", response.status_code)
+        return response
+
+
 # Request/Response Models
 class TaskRequest(BaseModel):
     agent_id: str

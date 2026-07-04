@@ -77,87 +77,95 @@ class GovernanceEngine:
             })
 
     def enforce(self, response: Dict[str, Any]) -> None:
-        outputs = str(response)
-        lower_out = outputs.lower()
+        from medagentx.core.telemetry import tracer
         
-        # Blocked phrases that suggest actual recommendations
-        # Note: We allow these words in negative contexts (e.g., "no treatment", "not treatment")
-        blocked_phrases = [
-            ("prescribe", None),  # Always block "prescribe" in any context
-            ("definitive diagnosis", None),
-            ("final diagnosis", None),
-            ("confirmed disease", None),
-            ("treatment plan", None),
-            # For "treatment", check that it's not in a negative context
-            ("treatment", ["no ", "not ", "does not", "do not", "cannot", "should not", "must not"]),
-        ]
-        
-        for phrase, allowed_contexts in blocked_phrases:
-            if phrase in lower_out:
-                # If this phrase has allowed negative contexts, check for them
-                if allowed_contexts:
-                    # Check all occurrences of the phrase
-                    phrase_pos = 0
-                    found_blockable = False
-                    while True:
-                        phrase_pos = lower_out.find(phrase, phrase_pos)
-                        if phrase_pos < 0:
-                            break
+        with tracer.start_as_current_span("governance_enforce") as span:
+            outputs = str(response)
+            lower_out = outputs.lower()
+            
+            # Blocked phrases that suggest actual recommendations
+            # Note: We allow these words in negative contexts (e.g., "no treatment", "not treatment")
+            blocked_phrases = [
+                ("prescribe", None),  # Always block "prescribe" in any context
+                ("definitive diagnosis", None),
+                ("final diagnosis", None),
+                ("confirmed disease", None),
+                ("treatment plan", None),
+                # For "treatment", check that it's not in a negative context
+                ("treatment", ["no ", "not ", "does not", "do not", "cannot", "should not", "must not"]),
+            ]
+            
+            for phrase, allowed_contexts in blocked_phrases:
+                if phrase in lower_out:
+                    # If this phrase has allowed negative contexts, check for them
+                    if allowed_contexts:
+                        # Check all occurrences of the phrase
+                        phrase_pos = 0
+                        found_blockable = False
+                        while True:
+                            phrase_pos = lower_out.find(phrase, phrase_pos)
+                            if phrase_pos < 0:
+                                break
+                            
+                            # Look for negative context before the phrase (up to 50 chars before for broader context)
+                            context_start = max(0, phrase_pos - 50)
+                            context = lower_out[context_start:phrase_pos]
+                            
+                            # Check if this occurrence is in a negative context
+                            if not any(neg in context for neg in allowed_contexts):
+                                # Found occurrence without negative context - this is blockable
+                                found_blockable = True
+                                break
+                            
+                            phrase_pos += len(phrase)
                         
-                        # Look for negative context before the phrase (up to 50 chars before for broader context)
-                        context_start = max(0, phrase_pos - 50)
-                        context = lower_out[context_start:phrase_pos]
-                        
-                        # Check if this occurrence is in a negative context
-                        if not any(neg in context for neg in allowed_contexts):
-                            # Found occurrence without negative context - this is blockable
-                            found_blockable = True
-                            break
-                        
-                        phrase_pos += len(phrase)
+                        # If all occurrences were in negative contexts, allow it
+                        if not found_blockable:
+                            continue
                     
-                    # If all occurrences were in negative contexts, allow it
-                    if not found_blockable:
-                        continue
-                
-                # Phrase found and not in allowed negative context - block it
-                detail = f"Governance block: phrase '{phrase}' not allowed."
-                self.audit_log.append(
-                    {
+                    # Phrase found and not in allowed negative context - block it
+                    detail = f"Governance block: phrase '{phrase}' not allowed."
+                    span.set_attribute("governance_violated", True)
+                    span.set_attribute("governance_violation_reason", detail)
+                    self.audit_log.append(
+                        {
+                            "timestamp": datetime.now().isoformat(),
+                            "event": "governance_block",
+                            "reason": detail,
+                        }
+                    )
+                    raise ValueError(detail)
+
+            # Check input signals flagged by LLM Guard
+            for agent_id, flags in list(self.input_signals.items()):
+                if flags.get("injection_detected"):
+                    detail = f"Governance block: Prompt injection detected on input to agent '{agent_id}'."
+                    span.set_attribute("governance_violated", True)
+                    span.set_attribute("governance_violation_reason", detail)
+                    self.audit_log.append({
                         "timestamp": datetime.now().isoformat(),
                         "event": "governance_block",
                         "reason": detail,
-                    }
-                )
-                raise ValueError(detail)
+                    })
+                    # Clear signals after block
+                    self.input_signals.clear()
+                    raise ValueError(detail)
+                if flags.get("pii_detected"):
+                    # Feed it as additional signal in logs
+                    self.audit_log.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "event": "governance_pii_warning",
+                        "reason": f"PII detected by LLM Guard in input to agent '{agent_id}'",
+                    })
+            
+            # Clear input signals after validation
+            self.input_signals.clear()
 
-        # Check input signals flagged by LLM Guard
-        for agent_id, flags in list(self.input_signals.items()):
-            if flags.get("injection_detected"):
-                detail = f"Governance block: Prompt injection detected on input to agent '{agent_id}'."
-                self.audit_log.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "event": "governance_block",
-                    "reason": detail,
-                })
-                # Clear signals after block
-                self.input_signals.clear()
-                raise ValueError(detail)
-            if flags.get("pii_detected"):
-                # Feed it as additional signal in logs
-                self.audit_log.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "event": "governance_pii_warning",
-                    "reason": f"PII detected by LLM Guard in input to agent '{agent_id}'",
-                })
-        
-        # Clear input signals after validation
-        self.input_signals.clear()
-
-        response["requires_human_approval"] = True
-        self.audit_log.append(
-            {"timestamp": datetime.now().isoformat(), "event": "governance_check", "result": "pass"}
-        )
+            response["requires_human_approval"] = True
+            self.audit_log.append(
+                {"timestamp": datetime.now().isoformat(), "event": "governance_check", "result": "pass"}
+            )
+            span.set_attribute("governance_violated", False)
 
     def get_audit_log(self) -> List[Dict[str, Any]]:
         return self.audit_log

@@ -86,12 +86,17 @@ class BaseTool(ABC):
     
     async def __call__(self, arguments: Dict[str, Any]) -> Any:
         """Make tool callable."""
-        if not self.validate_arguments(arguments):
-            raise ValueError(f"Invalid arguments for tool {self.tool_id}")
-        
-        self.call_count += 1
-        self.last_called = datetime.now()
-        
-        result = await self.execute(arguments)
-        return result
+        from medagentx.core.telemetry import tracer
+        with tracer.start_as_current_span(f"tool_{self.tool_id}_call") as span:
+            span.set_attribute("tool_id", self.tool_id)
+            span.set_attribute("arguments", str(arguments))
+            
+            if not self.validate_arguments(arguments):
+                raise ValueError(f"Invalid arguments for tool {self.tool_id}")
+            
+            self.call_count += 1
+            self.last_called = datetime.now()
+            
+            result = await self.execute(arguments)
+            return result
 

@@ -91,52 +91,67 @@ class BaseAgent(ABC):
         return {"reflection": "Human approval required before use.", "requires_human_approval": True}
 
     async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        # Pre-processing input scan with LLM Guard
-        if self.governance_engine:
-            self.governance_engine.scan_input(self.config.agent_id, task)
-            # Route and handle prompt injection immediately
-            if hasattr(self.governance_engine, "input_signals"):
-                flags = self.governance_engine.input_signals.get(self.config.agent_id, {})
-                if flags.get("injection_detected"):
-                    detail = f"Governance block: Prompt injection detected on input to agent '{self.config.agent_id}'."
-                    raise ValueError(detail)
+        from medagentx.core.telemetry import tracer
+        
+        # Log structured starting execution
+        logger.info("Agent run execution started", extra={"agent_id": self.config.agent_id, "task": task})
 
-        self.state.status = AgentStatus.THINKING
-        self.state.current_task = task
-        self._last_llm_usage = None  # Reset LLM usage tracking
-        self.state.messages.append(
-            AgentMessage(role=MessageRole.USER, content=task, metadata=context or {})
-        )
+        with tracer.start_as_current_span(f"agent_{self.config.agent_id}_run") as span:
+            span.set_attribute("agent_id", self.config.agent_id)
+            span.set_attribute("task", task)
 
-        plan = await self.plan(task, context)
-        action_result = await self.act(plan, context)
-        reflection = await self.reflect(action_result)
+            # Pre-processing input scan with LLM Guard
+            if self.governance_engine:
+                self.governance_engine.scan_input(self.config.agent_id, task)
+                # Route and handle prompt injection immediately
+                if hasattr(self.governance_engine, "input_signals"):
+                    flags = self.governance_engine.input_signals.get(self.config.agent_id, {})
+                    if flags.get("injection_detected"):
+                        detail = f"Governance block: Prompt injection detected on input to agent '{self.config.agent_id}'."
+                        span.set_attribute("governance_violation", True)
+                        span.set_attribute("governance_violation_reason", detail)
+                        raise ValueError(detail)
 
-        output = {
-            "output": action_result.get("output", {}),
-            "confidence": float(action_result.get("confidence", 0.5)),
-            "reasoning": " | ".join(
-                filter(None, [plan.get("reasoning"), action_result.get("reasoning"), reflection.get("reflection")])
-            ),
-            "requires_human_approval": True,
-            "audit": [
-                {"step": "plan", "detail": plan},
-                {"step": "act", "detail": action_result},
-                {"step": "reflect", "detail": reflection},
-            ],
-            "llm_usage": self._last_llm_usage,  # Include LLM usage metadata
-        }
-
-        self.state.status = AgentStatus.COMPLETED
-        self.state.messages.append(
-            AgentMessage(
-                role=MessageRole.AGENT,
-                content=str(output.get("output")),
-                metadata={"confidence": output["confidence"], "llm_usage": self._last_llm_usage},
+            self.state.status = AgentStatus.THINKING
+            self.state.current_task = task
+            self._last_llm_usage = None  # Reset LLM usage tracking
+            self.state.messages.append(
+                AgentMessage(role=MessageRole.USER, content=task, metadata=context or {})
             )
-        )
-        self.state.last_updated = datetime.now()
-        return output
+
+            plan = await self.plan(task, context)
+            action_result = await self.act(plan, context)
+            reflection = await self.reflect(action_result)
+
+            output = {
+                "output": action_result.get("output", {}),
+                "confidence": float(action_result.get("confidence", 0.5)),
+                "reasoning": " | ".join(
+                    filter(None, [plan.get("reasoning"), action_result.get("reasoning"), reflection.get("reflection")])
+                ),
+                "requires_human_approval": True,
+                "audit": [
+                    {"step": "plan", "detail": plan},
+                    {"step": "act", "detail": action_result},
+                    {"step": "reflect", "detail": reflection},
+                ],
+                "llm_usage": self._last_llm_usage,  # Include LLM usage metadata
+            }
+
+            self.state.status = AgentStatus.COMPLETED
+            self.state.messages.append(
+                AgentMessage(
+                    role=MessageRole.AGENT,
+                    content=str(output.get("output")),
+                    metadata={"confidence": output["confidence"], "llm_usage": self._last_llm_usage},
+                )
+            )
+            self.state.last_updated = datetime.now()
+            
+            span.set_attribute("confidence", output["confidence"])
+            logger.info("Agent run execution completed", extra={"agent_id": self.config.agent_id, "confidence": output["confidence"]})
+            
+            return output
     
     def get_last_llm_usage(self) -> Optional[Dict[str, Any]]:
         """Get last LLM usage metadata for trace."""

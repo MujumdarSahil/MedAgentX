@@ -47,9 +47,12 @@ class RecommendationWorkflow:
         coder_agent = self.agents["medical_coder"]
         risk_scorer = self.agents.get("risk_scorer")  # Optional risk scorer
 
+        from medagentx.core.output_guardrails import validate_agent_output
+
         # Symptom structuring
         sym_input = {"args": symptoms_text, "context": {"raw_symptoms": symptoms_text}}
         sym_result = await symptom_agent.run(sym_input["args"], context=sym_input["context"])
+        sym_result = validate_agent_output(sym_result)
         structured_symptoms = sym_result["output"].get("symptoms", [])
         self._audit("symptom_analyzer", sym_result)
         self._append_trace("symptom_analyzer", sym_input, sym_result, visualization_metadata={
@@ -66,6 +69,7 @@ class RecommendationWorkflow:
             "context": {"symptoms": structured_symptoms},
         }
         diag_result = await diagnosis_agent.run(diag_input["args"], context=diag_input["context"])
+        diag_result = validate_agent_output(diag_result)
         conditions = diag_result["output"].get("conditions", [])
         evidence = diag_result["output"].get("evidence", [])
         self._audit("diagnosis_support", diag_result)
@@ -89,6 +93,7 @@ class RecommendationWorkflow:
                 },
             }
             risk_result = await risk_scorer.run(risk_input["args"], context=risk_input["context"])
+            risk_result = validate_agent_output(risk_result)
             self._audit("risk_scorer", risk_result)
             self._append_trace("risk_scorer", risk_input, risk_result, visualization_metadata={
                 "step": 3,
@@ -104,6 +109,7 @@ class RecommendationWorkflow:
             "context": {"symptoms": structured_symptoms, "conditions": conditions},
         }
         coder_result = await coder_agent.run(coder_input["args"], context=coder_input["context"])
+        coder_result = validate_agent_output(coder_result)
         codes = coder_result["output"].get("codes", [])
         coding_disclaimer = coder_result["output"].get("disclaimer")
         

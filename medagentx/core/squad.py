@@ -152,6 +152,17 @@ class SquadExecutor:
                 # Execute step
                 step_output = await self._execute_step(step, step_input)
                 
+                # Downstream of agent generation, upstream of CRF tagging:
+                # Run Guardrails AI output validation
+                from medagentx.core.output_guardrails import validate_agent_output
+                if isinstance(step_output, dict):
+                    step_output = validate_agent_output(step_output)
+                elif hasattr(step_output, "__dict__"):
+                    validated_dict = validate_agent_output(step_output.__dict__)
+                    # Sync back updated fields (like metadata) to dataclass object if possible
+                    if hasattr(step_output, "metadata") and "metadata" in validated_dict:
+                        step_output.metadata = validated_dict["metadata"]
+                
                 # Store output
                 step_outputs[step.step_id] = step_output
                 result.outputs[step.step_id] = step_output

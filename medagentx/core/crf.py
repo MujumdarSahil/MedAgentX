@@ -54,6 +54,16 @@ class ResponsibilityMetadata:
             "evidence": self.evidence,
         }
     
+    def is_clinical_action_allowed(self) -> bool:
+        """
+        Check if clinical action is allowed based on this metadata.
+        
+        INVARIANT: No output can reach clinical action/use without passing
+        through DOCTOR_VALIDATED (or DOCTOR_OVERRIDDEN). AI_SUGGESTED outputs
+        can never be used for clinical action.
+        """
+        return self.tag in (ResponsibilityTag.DOCTOR_VALIDATED, ResponsibilityTag.DOCTOR_OVERRIDDEN)
+    
     @classmethod
     def create_ai_suggested(cls, evidence: Optional[list] = None) -> "ResponsibilityMetadata":
         """Create AI_SUGGESTED metadata."""
@@ -271,4 +281,22 @@ class ClinicalResponsibilityFirewall:
             "event": event,
             **data,
         })
+
+    def is_clinical_action_allowed(self, output: Dict[str, Any]) -> bool:
+        """
+        Check if clinical action is allowed for the given output.
+        
+        INVARIANT: No output can reach clinical action/use without passing
+        through DOCTOR_VALIDATED (or DOCTOR_OVERRIDDEN). AI_SUGGESTED outputs
+        can never be used for clinical action.
+        """
+        if "responsibility_metadata" not in output:
+            return False
+        meta = output["responsibility_metadata"]
+        if isinstance(meta, dict):
+            tag = meta.get("tag")
+            return tag in (ResponsibilityTag.DOCTOR_VALIDATED.value, ResponsibilityTag.DOCTOR_OVERRIDDEN.value)
+        elif hasattr(meta, "tag"):
+            return meta.tag in (ResponsibilityTag.DOCTOR_VALIDATED, ResponsibilityTag.DOCTOR_OVERRIDDEN)
+        return False
 

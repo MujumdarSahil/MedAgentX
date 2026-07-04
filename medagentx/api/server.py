@@ -99,6 +99,20 @@ _platform_state = {
 def get_platform():
     """Initialize and return platform components."""
     if _platform_state["governance"] is None:
+        # Verify the event store chain on startup/initialization to fail-fast on tampering
+        from medagentx.core.event_store import EventStore
+        try:
+            store = EventStore()
+            broken_id = store.verify_chain()
+            if broken_id:
+                logger.critical(f"EVENT STORE TAMPERING DETECTED! Broken link at event ID: {broken_id}")
+                raise ValueError(f"CRITICAL: Event store validation failed on startup. Tampering detected at event: {broken_id}")
+            else:
+                logger.info("Event store cryptographic chain verified successfully.")
+        except Exception as e:
+            logger.error(f"Event store verification during startup encountered an error: {e}", exc_info=True)
+            raise e
+
         _platform_state["governance"] = GovernanceEngine()
         _platform_state["knowledge"] = KnowledgeBase()
         _platform_state["coding_kb"] = MedicalCodingKB()
@@ -250,8 +264,25 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "platform": "MedAgentX"}
+    """Health check endpoint. Also verifies the cryptographic event store chain integrity."""
+    from medagentx.core.event_store import EventStore
+    store = EventStore()
+    broken_id = store.verify_chain()
+    
+    status = "healthy"
+    detail = "All systems operational. Event store chain verified."
+    
+    if broken_id:
+        status = "degraded"
+        detail = f"EVENT STORE TAMPERING DETECTED: broken link at event ID {broken_id}"
+        logger.critical(detail)
+        
+    return {
+        "status": status,
+        "platform": "MedAgentX",
+        "detail": detail,
+        "chain_valid": broken_id is None
+    }
 
 
 @app.post("/token")

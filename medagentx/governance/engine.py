@@ -23,6 +23,7 @@ class GovernanceEngine:
         """
         pii_detected = False
         injection_detected = False
+        degraded_mode = False
         
         try:
             # Note: Importing these here keeps them local
@@ -37,6 +38,15 @@ class GovernanceEngine:
             if not results_valid.get("PromptInjection", True):
                 injection_detected = True
         except Exception as e:
+            degraded_mode = True
+            self.audit_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "event": "degraded_mode",
+                "agent_id": agent_id,
+                "error": str(e),
+                "detail": "LLM Guard failed to initialize. Falling back to rule-based scanner."
+            })
+            
             # Fallback scanner when model files are not local/cached or downloading fails
             import re
             email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
@@ -62,6 +72,7 @@ class GovernanceEngine:
         flags = {
             "pii_detected": pii_detected,
             "injection_detected": injection_detected,
+            "degraded_mode": degraded_mode,
             "agent_id": agent_id,
         }
         
@@ -157,6 +168,18 @@ class GovernanceEngine:
                         "event": "governance_pii_warning",
                         "reason": f"PII detected by LLM Guard in input to agent '{agent_id}'",
                     })
+                if flags.get("degraded_mode"):
+                    # Append warning to audit log
+                    self.audit_log.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "event": "governance_degraded_warning",
+                        "reason": f"Input scanned in degraded mode (fallback rules) for agent '{agent_id}' due to LLM Guard initialization failure.",
+                    })
+                    response["requires_human_approval"] = True
+                    if "metadata" not in response:
+                        response["metadata"] = {}
+                    response["metadata"]["llm_guard_degraded"] = True
+                    response["metadata"]["requires_human_approval"] = True
             
             # Clear input signals after validation
             self.input_signals.clear()

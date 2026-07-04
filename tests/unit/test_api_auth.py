@@ -16,7 +16,10 @@ def test_public_endpoints_accessible():
     """
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "healthy", "platform": "MedAgentX"}
+    json_res = res.json()
+    assert json_res["status"] == "healthy"
+    assert json_res["platform"] == "MedAgentX"
+    assert json_res["chain_valid"] is True
 
 
 def test_protected_endpoint_no_token():

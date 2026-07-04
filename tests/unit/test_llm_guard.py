@@ -89,3 +89,29 @@ async def test_prompt_injection_blocked(mock_agent, governance_engine):
     flags = [e for e in governance_engine.audit_log if e.get("event") == "llm_guard_flagged"]
     assert len(flags) == 1
     assert flags[0]["injection_detected"] is True
+
+
+@pytest.mark.asyncio
+async def test_degraded_mode_logs_and_flags(mock_agent, governance_engine):
+    """
+    Test that when LLM Guard fails to initialize, it enters degraded mode,
+    logging a 'degraded_mode' event and forcing human approval flags.
+    """
+    task = "Lightweight clinical analysis query."
+    result = await mock_agent.run(task)
+    
+    # Verify degraded mode audit log events
+    degraded_events = [e for e in governance_engine.audit_log if e.get("event") == "degraded_mode"]
+    assert len(degraded_events) == 1
+    assert degraded_events[0]["agent_id"] == "test_agent"
+    
+    # Verify governance enforce warnings are appended
+    gov_result = {"output": {}}
+    governance_engine.enforce(gov_result)
+    
+    warning_events = [e for e in governance_engine.audit_log if e.get("event") == "governance_degraded_warning"]
+    assert len(warning_events) == 1
+    
+    # Check that output is flagged in metadata
+    assert gov_result["requires_human_approval"] is True
+    assert gov_result["metadata"]["llm_guard_degraded"] is True

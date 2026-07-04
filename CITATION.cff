@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use MedAgentX in your research, please cite it as below."
+type: software
+title: "MedAgentX: A Governance-First Deterministic Multi-Agent Clinical Intelligence Platform"
+version: 2.0.0
+date-released: "2025-01-01"
+authors:
+  - family-names: "Mujumdar"
+    given-names: "Sahil"
+    affiliation: "Tobox Ventures, Mumbai, India"
+    email: "mujumdarsahil05@gmail.com"
+repository-code: "https://github.com/MujumdarSahil/MedAgentX"
+url: "https://github.com/MujumdarSahil/MedAgentX"
+license: MIT
+keywords:
+  - clinical-ai
+  - multi-agent-systems
+  - healthcare-governance
+  - deterministic-ai
+  - clinical-decision-support
+  - human-in-the-loop
+  - responsible-ai
+  - audit-trail
+  - clinical-responsibility-firewall
+abstract: >
+  MedAgentX is a governance-first, deterministic, and replayable multi-agent
+  clinical intelligence architecture designed to support clinicians without
+  enabling autonomous diagnosis or treatment. The system introduces a Clinical
+  Responsibility Firewall (CRF) as a first-class architectural primitive,
+  deterministic execution graphs, counterfactual and replay-driven auditability,
+  and bounded persistence layers that preserve clinician responsibility while
+  improving contextual reasoning support.
+preferred-citation:
+  type: article
+  title: "Designing Deterministic and Governed Multi-Agent Systems for Clinical Intelligence Without Autonomous Diagnosis: The MedAgentX Architecture"
+  authors:
+    - family-names: "Mujumdar"
+      given-names: "Sahil"
+  journal: "JMIR Medical Informatics"
+  year: 2025
+  doi: "10.XXXX/XXXXX"

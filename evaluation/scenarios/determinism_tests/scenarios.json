@@ -1,0 +1,11 @@
+[
+  {
+    "scenario_id": "DET-001",
+    "category": "rule_based_output",
+    "workflow": "crf_transition",
+    "input": {"current_state": "AI_SUGGESTED", "event": "DOCTOR_REVIEW_COMPLETE"},
+    "expected_output_deterministic": true,
+    "verification_method": "sha256_hash",
+    "description": "CRF state machine transition from AI_SUGGESTED to DOCTOR_REVIEWED must be 100% deterministic."
+  }
+]

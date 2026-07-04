@@ -1,0 +1,2 @@
+# This file keeps the results directory in git tracking.
+# Actual result files (.jsonl, .csv, .json) are gitignored.

@@ -1,4 +1,10 @@
+# ════════════════════════════════════════════════════════
+# MedAgentX — Comprehensive .gitignore
+# ════════════════════════════════════════════════════════
+
+# ──────────────────────────────────────────
 # Python
+# ──────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,57 +22,158 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual environments
+# ──────────────────────────────────────────
+# Virtual Environments (NEVER commit these)
+# ──────────────────────────────────────────
 venv/
 env/
 ENV/
-.venv
 myenv/
+.venv/
+.env/
+virtualenv/
 
-# IDEs
+# ──────────────────────────────────────────
+# Testing & Coverage
+# ──────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ──────────────────────────────────────────
+# Type Checking
+# ──────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ──────────────────────────────────────────
+# IDEs & Editors
+# ──────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# Logs
-logs/
-*.log
-
-# Data
-data/
-*.db
-*.sqlite
-
-# Configuration (local)
-config/config.yaml
-config/local.yaml
-
-# Environment variables
-.env
-.env.local
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# ──────────────────────────────────────────
+# Jupyter
+# ──────────────────────────────────────────
+.ipynb_checkpoints
+*.ipynb
 
-# Vector indices
+# ──────────────────────────────────────────
+# Distribution / Packaging
+# ──────────────────────────────────────────
+*.tar.gz
+*.zip
+
+# ──────────────────────────────────────────
+# Environment Variables (NEVER commit secrets)
+# ──────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+config/config.yaml
+config/local.yaml
+
+# ──────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────
+*.log
+logs/
+log/
+
+# ──────────────────────────────────────────
+# Database Files
+# ──────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ──────────────────────────────────────────
+# OS Artifacts
+# ──────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ──────────────────────────────────────────
+# Windows Artifacts (from merged branch — should never be here)
+# ──────────────────────────────────────────
+*.ps1
+*.psm1
+
+# ──────────────────────────────────────────
+# Man Page Artifacts (from pip installations — should never be committed)
+# ──────────────────────────────────────────
+*.1
+*.3
+*.5
+*.8
+man/
+
+# ──────────────────────────────────────────
+# ChromaDB / Vector Store Data (large, should not be in repo)
+# ──────────────────────────────────────────
+chroma_db/
+vector_store/
 *.index
 *.faiss
 
-# Temporary files
+# ──────────────────────────────────────────
+# Model Weights / Embeddings (large binary files)
+# ──────────────────────────────────────────
+*.bin
+*.pt
+*.pth
+*.onnx
+*.pkl
+
+# ──────────────────────────────────────────
+# Temporary Files
+# ──────────────────────────────────────────
 tmp/
 temp/
+.tmp/
 *.tmp
 
+# ──────────────────────────────────────────
+# Build Artifacts
+# ──────────────────────────────────────────
+*.pyc
+*.pyo
+
+# ──────────────────────────────────────────
+# Evaluation Results (generated, not source)
+# ──────────────────────────────────────────
+evaluation/results/*.jsonl
+evaluation/results/*.csv
+evaluation/results/*.json
+!evaluation/results/.gitkeep
+
+# ──────────────────────────────────────────
+# Data directories
+# ──────────────────────────────────────────
+data/

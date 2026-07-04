@@ -36,8 +36,8 @@ class EventStore:
         
         # In-memory index for fast lookup
         self._event_index: Dict[str, List[str]] = {}  # execution_id -> [event_ids]
+        self._global_chain: List[str] = []  # List of all event IDs in sequential order
         self._load_index()
-    
     def append_event(
         self,
         execution_id: str,
@@ -65,9 +65,19 @@ class EventStore:
         Returns:
             Event ID
         """
+        import hashlib
+        
         # Generate event ID
         event_id = f"{execution_id}_{event_type}_{source_id}_{datetime.now().isoformat()}"
         event_id = event_id.replace(":", "-").replace(".", "-")
+        
+        # Determine previous event hash
+        previous_hash = "0" * 64
+        if self._global_chain:
+            last_event_id = self._global_chain[-1]
+            last_event = self.get_event(last_event_id)
+            if last_event and "hash" in last_event:
+                previous_hash = last_event["hash"]
         
         # Create event structure
         event = {
@@ -81,23 +91,28 @@ class EventStore:
             "responsibility_metadata": responsibility_metadata or {},
             "confidence": confidence,
             "evidence": evidence or [],
+            "previous_hash": previous_hash,
         }
+        
+        # Compute cryptographic hash (excluding "hash" key)
+        canonical = json.dumps(event, sort_keys=True, separators=(',', ':'))
+        event["hash"] = hashlib.sha256((previous_hash + canonical).encode('utf-8')).hexdigest()
         
         # Write to file (append-only)
         event_file = self.store_path / f"{event_id}.json"
         with open(event_file, "w") as f:
             json.dump(event, f, indent=2)
         
-        # Update index
+        # Update indices
         if execution_id not in self._event_index:
             self._event_index[execution_id] = []
         self._event_index[execution_id].append(event_id)
+        self._global_chain.append(event_id)
         self._save_index()
         
         logger.debug(f"Appended event {event_id} to execution {execution_id}")
         
         return event_id
-    
     def get_events(
         self,
         execution_id: str,
@@ -210,23 +225,97 @@ class EventStore:
         
         return output_path
     
+    def verify_chain(self) -> Optional[str]:
+        """
+        Verify the integrity of the event chain.
+        
+        Walks the event store using the global chain index, recomputes hashes,
+        and returns the first broken link event_id, if any.
+        Returns None if the chain is fully valid.
+        """
+        import hashlib
+        
+        expected_previous_hash = "0" * 64
+        for event_id in self._global_chain:
+            event_file = self.store_path / f"{event_id}.json"
+            if not event_file.exists():
+                logger.error(f"Event file {event_id}.json missing from chain")
+                return event_id
+            
+            try:
+                with open(event_file, "r") as f:
+                    event = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load event {event_id}: {e}")
+                return event_id
+            
+            # Check previous hash link
+            prev_hash_in_record = event.get("previous_hash")
+            if prev_hash_in_record != expected_previous_hash:
+                logger.error(f"Event {event_id} broken link: expected previous hash {expected_previous_hash}, got {prev_hash_in_record}")
+                return event_id
+                
+            # Verify stored hash matches computed hash
+            stored_hash = event.get("hash")
+            if not stored_hash:
+                logger.error(f"Event {event_id} has no hash stored")
+                return event_id
+                
+            # Compute expected hash
+            event_copy = {k: v for k, v in event.items() if k != "hash"}
+            canonical = json.dumps(event_copy, sort_keys=True, separators=(',', ':'))
+            computed_hash = hashlib.sha256((prev_hash_in_record + canonical).encode('utf-8')).hexdigest()
+            
+            if stored_hash != computed_hash:
+                logger.error(f"Event {event_id} hash mismatch: stored {stored_hash}, computed {computed_hash}")
+                return event_id
+                
+            expected_previous_hash = stored_hash
+            
+        return None
+
     def _load_index(self) -> None:
-        """Load event index from disk."""
+        """Load event index and global chain from disk."""
         index_file = self.store_path / ".index.json"
         if index_file.exists():
             try:
                 with open(index_file, "r") as f:
-                    self._event_index = json.load(f)
+                    data = json.load(f)
+                if isinstance(data, dict) and "event_index" in data and "global_chain" in data:
+                    self._event_index = data["event_index"]
+                    self._global_chain = data["global_chain"]
+                else:
+                    # Migration: if .index.json is in old format, index maps execution_id -> event_ids
+                    self._event_index = data
+                    # Reconstruct global chain by sorting all events by timestamp
+                    all_event_ids = []
+                    for v in self._event_index.values():
+                        all_event_ids.extend(v)
+                    
+                    event_timestamps = []
+                    for eid in all_event_ids:
+                        evt = self.get_event(eid)
+                        if evt:
+                            event_timestamps.append((evt.get("timestamp", ""), eid))
+                    event_timestamps.sort()
+                    self._global_chain = [eid for _, eid in event_timestamps]
             except Exception as e:
                 logger.warning(f"Error loading index: {e}")
                 self._event_index = {}
+                self._global_chain = []
+        else:
+            self._event_index = {}
+            self._global_chain = []
     
     def _save_index(self) -> None:
-        """Save event index to disk."""
+        """Save event index and global chain to disk."""
         index_file = self.store_path / ".index.json"
         try:
             with open(index_file, "w") as f:
-                json.dump(self._event_index, f, indent=2)
+                json.dump({
+                    "event_index": self._event_index,
+                    "global_chain": self._global_chain,
+                }, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving index: {e}")
 

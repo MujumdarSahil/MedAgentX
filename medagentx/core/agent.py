@@ -91,6 +91,16 @@ class BaseAgent(ABC):
         return {"reflection": "Human approval required before use.", "requires_human_approval": True}
 
     async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        # Pre-processing input scan with LLM Guard
+        if self.governance_engine:
+            self.governance_engine.scan_input(self.config.agent_id, task)
+            # Route and handle prompt injection immediately
+            if hasattr(self.governance_engine, "input_signals"):
+                flags = self.governance_engine.input_signals.get(self.config.agent_id, {})
+                if flags.get("injection_detected"):
+                    detail = f"Governance block: Prompt injection detected on input to agent '{self.config.agent_id}'."
+                    raise ValueError(detail)
+
         self.state.status = AgentStatus.THINKING
         self.state.current_task = task
         self._last_llm_usage = None  # Reset LLM usage tracking

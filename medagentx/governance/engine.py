@@ -14,6 +14,67 @@ class GovernanceEngine:
 
     def __init__(self):
         self.audit_log: List[Dict[str, Any]] = []
+        self.input_signals: Dict[str, Dict[str, Any]] = {}
+
+    def scan_input(self, agent_id: str, prompt: str) -> None:
+        """
+        Scan prompt using LLM Guard for PII and Prompt Injection.
+        Routes flags into the governance engine audit log and active signal state.
+        """
+        pii_detected = False
+        injection_detected = False
+        
+        try:
+            # Note: Importing these here keeps them local
+            from llm_guard.input_scanners import Anonymize, PromptInjection
+            from llm_guard import scan_prompt
+            
+            scanners = [Anonymize(), PromptInjection()]
+            sanitized_prompt, results_valid, results_score = scan_prompt(prompt, scanners)
+            
+            if not results_valid.get("Anonymize", True):
+                pii_detected = True
+            if not results_valid.get("PromptInjection", True):
+                injection_detected = True
+        except Exception as e:
+            # Fallback scanner when model files are not local/cached or downloading fails
+            import re
+            email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+            phone_pattern = r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+            ssn_pattern = r'\b\d{3}-\d{2}-\d{4}\b'
+            
+            if re.search(email_pattern, prompt) or re.search(phone_pattern, prompt) or re.search(ssn_pattern, prompt):
+                pii_detected = True
+            
+            lower_prompt = prompt.lower()
+            injection_indicators = [
+                "ignore previous instructions",
+                "ignore all instructions",
+                "bypass safety",
+                "system prompt",
+                "forget what you were told",
+                "you are now a",
+                "new rules:",
+            ]
+            if any(indicator in lower_prompt for indicator in injection_indicators):
+                injection_detected = True
+
+        flags = {
+            "pii_detected": pii_detected,
+            "injection_detected": injection_detected,
+            "agent_id": agent_id,
+        }
+        
+        self.input_signals[agent_id] = flags
+        
+        if pii_detected or injection_detected:
+            self.audit_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "event": "llm_guard_flagged",
+                "agent_id": agent_id,
+                "pii_detected": pii_detected,
+                "injection_detected": injection_detected,
+            })
 
     def enforce(self, response: Dict[str, Any]) -> None:
         outputs = str(response)
@@ -69,6 +130,29 @@ class GovernanceEngine:
                     }
                 )
                 raise ValueError(detail)
+
+        # Check input signals flagged by LLM Guard
+        for agent_id, flags in list(self.input_signals.items()):
+            if flags.get("injection_detected"):
+                detail = f"Governance block: Prompt injection detected on input to agent '{agent_id}'."
+                self.audit_log.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "event": "governance_block",
+                    "reason": detail,
+                })
+                # Clear signals after block
+                self.input_signals.clear()
+                raise ValueError(detail)
+            if flags.get("pii_detected"):
+                # Feed it as additional signal in logs
+                self.audit_log.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "event": "governance_pii_warning",
+                    "reason": f"PII detected by LLM Guard in input to agent '{agent_id}'",
+                })
+        
+        # Clear input signals after validation
+        self.input_signals.clear()
 
         response["requires_human_approval"] = True
         self.audit_log.append(

@@ -87,6 +87,21 @@ class GovernanceEngine:
                 "injection_detected": injection_detected,
             })
 
+        # Emit Langfuse-visible governance event
+        try:
+            from medagentx.core.telemetry import record_governance_event
+            record_governance_event(
+                "input_scan",
+                {
+                    "governance.agent_id": agent_id,
+                    "governance.pii_detected": pii_detected,
+                    "governance.injection_detected": injection_detected,
+                    "governance.degraded_mode": degraded_mode,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass  # Telemetry must never disrupt the guard path
+
     def enforce(self, response: Dict[str, Any]) -> None:
         from medagentx.core.telemetry import tracer
         
@@ -145,6 +160,17 @@ class GovernanceEngine:
                             "reason": detail,
                         }
                     )
+                    try:
+                        from medagentx.core.telemetry import record_governance_event
+                        record_governance_event(
+                            "output_block",
+                            {
+                                "governance.blocked_phrase": phrase,
+                                "governance.approval_required": True,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                     raise ValueError(detail)
 
             # Check input signals flagged by LLM Guard
@@ -189,6 +215,17 @@ class GovernanceEngine:
                 {"timestamp": datetime.now().isoformat(), "event": "governance_check", "result": "pass"}
             )
             span.set_attribute("governance_violated", False)
+            try:
+                from medagentx.core.telemetry import record_governance_event
+                record_governance_event(
+                    "output_check",
+                    {
+                        "governance.approval_required": True,
+                        "governance.result": "pass",
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     def get_audit_log(self) -> List[Dict[str, Any]]:
         return self.audit_log

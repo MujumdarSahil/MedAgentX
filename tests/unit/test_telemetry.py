@@ -10,6 +10,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 import pytest
 import asyncio
 
+import hashlib
+
 from medagentx.core.agent import BaseAgent
 from medagentx.core.types import AgentConfig
 from medagentx.core.telemetry import tracer
@@ -66,5 +68,8 @@ async def test_agent_run_traces(memory_exporter):
 
     span = agent_spans[0]
     assert span.attributes["agent_id"] == "telemetry_test_agent"
-    assert span.attributes["task"] == "Test telemetry task"
+    # Raw task text is never stored (PII-safe). Verify the hash matches.
+    expected_hash = hashlib.sha256(b"Test telemetry task").hexdigest()[:16]
+    assert span.attributes["task_hash"] == expected_hash
+    assert span.attributes["agent.type"] == "BaseAgent"
     assert span.attributes["confidence"] == 0.8

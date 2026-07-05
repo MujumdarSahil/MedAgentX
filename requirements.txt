@@ -84,3 +84,15 @@ uvicorn>=0.24.0
 # UI
 # ──────────────────────────────────────────
 streamlit>=1.28.0
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Observability
+# ──────────────────────────────────────────────────────────────────────────────
+# OpenTelemetry — tracing SDK and API
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+
+# Langfuse — self-hosted observability backend (OTel-compatible)
+# Provides LangfuseSpanExporter for wiring into the OTel TracerProvider.
+# Set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY + LANGFUSE_HOST in .env to enable.
+langfuse>=3.0.0

@@ -92,7 +92,7 @@ class BaseAgent(ABC):
         return {"reflection": "Human approval required before use.", "requires_human_approval": True}
 
     async def run(self, task: str, context: Optional[Union[Dict[str, Any], AgentExecutionContext]] = None) -> Dict[str, Any]:
-        from medagentx.core.telemetry import tracer
+        from medagentx.core.telemetry import tracer, _task_hash
         
         if isinstance(context, dict):
             context = AgentExecutionContext(**context)
@@ -104,7 +104,9 @@ class BaseAgent(ABC):
 
         with tracer.start_as_current_span(f"agent_{self.config.agent_id}_run") as span:
             span.set_attribute("agent_id", self.config.agent_id)
-            span.set_attribute("task", task)
+            # Use a hash of the task to avoid PII leakage in span names
+            span.set_attribute("task_hash", _task_hash(task))
+            span.set_attribute("agent.type", type(self).__name__)
 
             # Pre-processing input scan with LLM Guard
             if self.governance_engine:
@@ -154,10 +156,25 @@ class BaseAgent(ABC):
                 )
             )
             self.state.last_updated = datetime.now()
-            
+
             span.set_attribute("confidence", output["confidence"])
+
+            # Emit LLM generation span for Langfuse prompt/completion tracking
+            if self._last_llm_usage:
+                with tracer.start_as_current_span(f"llm.{self.config.agent_id}.generation") as llm_span:
+                    llm_span.set_attribute("llm.agent_id", self.config.agent_id)
+                    model = self._last_llm_usage.get("model", "unknown")
+                    llm_span.set_attribute("llm.model", str(model))
+                    prompt_tokens = self._last_llm_usage.get("prompt_tokens", 0)
+                    completion_tokens = self._last_llm_usage.get("completion_tokens", 0)
+                    total_tokens = self._last_llm_usage.get("total_tokens", 0)
+                    llm_span.set_attribute("llm.usage.prompt_tokens", int(prompt_tokens or 0))
+                    llm_span.set_attribute("llm.usage.completion_tokens", int(completion_tokens or 0))
+                    llm_span.set_attribute("llm.usage.total_tokens", int(total_tokens or 0))
+                    llm_span.set_attribute("llm.confidence", output["confidence"])
+
             logger.info("Agent run execution completed", extra={"agent_id": self.config.agent_id, "confidence": output["confidence"]})
-            
+
             return output
     
     def get_last_llm_usage(self) -> Optional[Dict[str, Any]]:

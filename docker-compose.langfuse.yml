@@ -1,0 +1,133 @@
+# MedAgentX — Self-hosted Langfuse v3 Observability Stack
+#
+# Usage:
+#   docker compose -f docker-compose.langfuse.yml up -d
+#
+# Services:
+#   - langfuse-postgres   : stores users, projects, prompts, config
+#   - langfuse-clickhouse : stores high-volume trace / event data
+#   - langfuse            : Langfuse v3 application server (UI + API)
+#
+# Required env vars (set in .env or export before running):
+#   LANGFUSE_SALT              — random 32-char string for hashing
+#   LANGFUSE_NEXTAUTH_SECRET   — random 32-char string for session auth
+#   LANGFUSE_PUBLIC_KEY        — generated inside Langfuse after first login
+#   LANGFUSE_SECRET_KEY        — generated inside Langfuse after first login
+#
+# Quickstart secrets (replace in production):
+#   LANGFUSE_SALT=changeme-32-char-salt-string-here
+#   LANGFUSE_NEXTAUTH_SECRET=changeme-32-char-nextauth-secret
+
+version: "3.9"
+
+networks:
+  langfuse-net:
+    driver: bridge
+
+volumes:
+  langfuse-postgres-data:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:
+
+services:
+
+  # ──────────────────────────────────────────────────────────────
+  # PostgreSQL — metadata, projects, users, prompt library
+  # ──────────────────────────────────────────────────────────────
+  langfuse-postgres:
+    image: postgres:15-alpine
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    networks:
+      - langfuse-net
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-langfuse_local_pw}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────────────────────────
+  # ClickHouse — high-volume trace / observation storage (Langfuse v3)
+  # ──────────────────────────────────────────────────────────────
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    networks:
+      - langfuse-net
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_ch_local_pw}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user langfuse --password ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_ch_local_pw} --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────────────────────────────
+  # Langfuse v3 — application server (UI + REST API + OTel ingest)
+  # ──────────────────────────────────────────────────────────────
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: langfuse
+    restart: unless-stopped
+    networks:
+      - langfuse-net
+    ports:
+      - "3000:3000"
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-langfuse_local_pw}@langfuse-postgres:5432/langfuse
+
+      # ClickHouse
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_ch_local_pw}
+
+      # Auth secrets — MUST be set to non-default values in production
+      SALT: ${LANGFUSE_SALT:-changeme-32-char-salt-string-here!}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-32-char-nextauth-secret!}
+      NEXTAUTH_URL: http://localhost:3000
+
+      # Application
+      NODE_ENV: production
+      TELEMETRY_ENABLED: "false"    # Disable Langfuse's own product telemetry
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+
+      # Self-hosting flags
+      LANGFUSE_INIT_ORG_ID: medagentx-org
+      LANGFUSE_INIT_ORG_NAME: MedAgentX
+      LANGFUSE_INIT_PROJECT_ID: medagentx-project
+      LANGFUSE_INIT_PROJECT_NAME: "MedAgentX Clinical AI"
+      # Public/secret keys bootstrapped here; rotate after first login
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-medagentx-changeme}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-medagentx-changeme}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_ADMIN_EMAIL:-admin@medagentx.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_ADMIN_NAME:-MedAgentX Admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_ADMIN_PASSWORD:-changeme-admin-pw}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/public/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s

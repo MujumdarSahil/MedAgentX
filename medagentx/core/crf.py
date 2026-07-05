@@ -248,12 +248,14 @@ class ClinicalResponsibilityFirewall:
             Output with responsibility_metadata added
         """
         # Reject and force overwrite of forged doctor validation tags
+        forged_tag_rejected = False
         if "responsibility_metadata" in output:
             metadata = output["responsibility_metadata"]
             if isinstance(metadata, dict):
                 tag_val = metadata.get("tag")
                 if tag_val in [ResponsibilityTag.DOCTOR_VALIDATED.value, ResponsibilityTag.DOCTOR_OVERRIDDEN.value]:
                     logger.warning(f"Rejected forged doctor responsibility tag: {tag_val}")
+                    forged_tag_rejected = True
                     output["responsibility_metadata"] = self.tag_output(
                         output,
                         source=source,
@@ -265,6 +267,7 @@ class ClinicalResponsibilityFirewall:
                 tag_val = getattr(metadata, "tag")
                 if tag_val in [ResponsibilityTag.DOCTOR_VALIDATED, ResponsibilityTag.DOCTOR_OVERRIDDEN]:
                     logger.warning(f"Rejected forged doctor responsibility tag object: {tag_val}")
+                    forged_tag_rejected = True
                     output["responsibility_metadata"] = self.tag_output(
                         output,
                         source=source,
@@ -272,6 +275,18 @@ class ClinicalResponsibilityFirewall:
                         confidence=output.get("confidence"),
                         evidence=output.get("evidence", []),
                     )
+
+        # Emit CRF telemetry event for forgery attempt
+        if forged_tag_rejected:
+            try:
+                from medagentx.core.telemetry import record_crf_event
+                record_crf_event(
+                    tag=ResponsibilityTag.AI_SUGGESTED.value,
+                    agent_id=source_id,
+                    forged=True,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         # If already tagged, verify it's valid
         if "responsibility_metadata" in output:
@@ -294,10 +309,22 @@ class ClinicalResponsibilityFirewall:
                 confidence=output.get("confidence"),
                 evidence=output.get("evidence", []),
             ).to_dict()
-        
+
+        # Emit normal CRF telemetry event
+        if not forged_tag_rejected:
+            try:
+                from medagentx.core.telemetry import record_crf_event
+                record_crf_event(
+                    tag=ResponsibilityTag.AI_SUGGESTED.value,
+                    agent_id=source_id,
+                    forged=False,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         # Ensure human_approval_required is True
         output["human_approval_required"] = True
-        
+
         return output
     
     def _audit(self, event: str, data: Dict[str, Any]) -> None:

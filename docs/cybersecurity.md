@@ -43,3 +43,44 @@ An adversary might attempt a data-layer forgery by submitting forged metadata (e
 ## 5. Structured Audit Logging & LLM Guard Fail-Closed
 - **LLM Guard Integration**: Scans all incoming prompts for PII and prompt injection. If prompt injection is detected, it raises a `ValueError` blocking execution.
 - **Fail-Closed Fallback**: If the HuggingFace models fail to initialize (due to network drops or resource constraints), the system falls back to rule-based regex check filters, registers a distinct `"degraded_mode"` warning event in the structured audit logs, and sets `requires_human_approval = True` and `llm_guard_degraded = True` to mandate human review.
+
+---
+
+## 6. Observability PII Controls (Langfuse Export)
+MedAgentX uses a self-hosted Langfuse v3 instance as its observability backend (see `docs/observability.md`).  To prevent patient data from being stored in trace metadata, a `PiiMaskingSpanProcessor` sits between the OTel TracerProvider and the Langfuse exporter.
+
+### Redaction Policy
+The processor replaces the **value** of any span attribute whose key matches the following patterns with the literal string `[REDACTED]`.  Keys are matched case-insensitively.
+
+**Exact key matches (any case):**
+
+| Key |
+|---|
+| `patient_id` |
+| `mrn`, `medical_record_number` |
+| `dob`, `date_of_birth` |
+| `ssn`, `social_security_number` |
+| `nhs_number` |
+| `email` |
+| `phone`, `phone_number` |
+| `address` |
+| `full_name`, `first_name`, `last_name` |
+
+**Substring patterns (key must contain):**
+
+| Substring |
+|---|
+| `pii_` |
+| `_pii` |
+| `patient_` |
+| `_ssn` |
+| `_mrn` |
+
+### Additional Controls
+- **Task text is never stored as a span attribute.** The `task_hash` attribute (16-character truncated SHA-256) is used instead, enabling correlation without exposure of raw prompt text.
+- **Span names** use structured identifiers (e.g. `agent_symptom_analyzer_run`) not patient-derived strings.
+- **The Langfuse deployment is network-isolated** — all services run on an internal Docker bridge network (`langfuse-net`).  Only port 3000 (UI/API) is exposed on localhost.
+- The console exporter (always active) writes spans to `stdout` — ensure production log pipelines also scrub or filter PII fields before long-term storage.
+
+### Code Reference
+`PiiMaskingSpanProcessor` is implemented in [`medagentx/core/telemetry.py`](../medagentx/core/telemetry.py).

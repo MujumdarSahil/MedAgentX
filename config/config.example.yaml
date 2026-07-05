@@ -82,3 +82,45 @@ safety:
     All outputs are recommendations, not final decisions.
     Human (doctor) approval is mandatory before any diagnosis or treatment suggestion.
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Observability — Self-hosted Langfuse v3
+# ──────────────────────────────────────────────────────────────────────────────
+# Langfuse is an open-source, self-hosted observability platform for LLM
+# applications.  MedAgentX wires its OpenTelemetry TracerProvider into Langfuse
+# so traces, governance events, CRF decisions, and LLM generations are
+# queryable in a dashboard without data leaving your environment.
+#
+# Quick-start:
+#   1. docker compose -f docker-compose.langfuse.yml up -d
+#   2. Navigate to http://localhost:3000
+#   3. Create a project → Settings → API Keys → copy public + secret keys
+#   4. Set the three env vars below and restart the MedAgentX server.
+#
+# Environment variables (set in .env or shell before starting the server):
+#
+#   LANGFUSE_PUBLIC_KEY        — Public key from your Langfuse project
+#                                Example: pk-lf-xxxxxxxxxxxxxxxxxxxx
+#
+#   LANGFUSE_SECRET_KEY        — Secret key from your Langfuse project
+#                                Example: sk-lf-xxxxxxxxxxxxxxxxxxxx
+#
+#   LANGFUSE_HOST              — URL of your Langfuse server
+#                                Default: http://localhost:3000
+#                                Production example: https://langfuse.yourhospital.internal
+#
+# Optional tuning (BatchSpanProcessor defaults are sufficient for most loads):
+#   OTEL_BSP_MAX_QUEUE_SIZE    — Max spans buffered before export (default: 2048)
+#   OTEL_BSP_EXPORT_TIMEOUT    — Milliseconds before export times out (default: 30000)
+#   OTEL_BSP_SCHEDULE_DELAY    — Milliseconds between export flushes (default: 5000)
+#
+# PII masking:
+#   A PiiMaskingSpanProcessor scrubs the following attributes before they
+#   reach Langfuse: patient_id, mrn, dob, ssn, nhs_number, email, phone,
+#   address, full_name, first_name, last_name, and any key containing "pii_".
+#   See docs/cybersecurity.md § 6 for full policy.
+observability:
+  langfuse:
+    public_key: "${LANGFUSE_PUBLIC_KEY}"
+    secret_key: "${LANGFUSE_SECRET_KEY}"
+    host: "${LANGFUSE_HOST:-http://localhost:3000}"
+

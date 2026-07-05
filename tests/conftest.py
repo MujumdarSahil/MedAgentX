@@ -4,6 +4,9 @@ pytest configuration for MedAgentX test suite.
 Shared fixtures and test settings for unit and integration tests.
 """
 
+import os
+os.environ["EVAL_MODE"] = "true"
+
 import pytest
 
 

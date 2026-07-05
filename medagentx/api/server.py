@@ -17,6 +17,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import os
 import jwt
+import asyncio
 from typing import Optional, Dict, Any, List
 import logging
 from pathlib import Path
@@ -44,6 +45,7 @@ KEYCLOAK_URL = os.getenv("KEYCLOAK_URL")  # e.g., http://localhost:8080/realms/m
 KEYCLOAK_AUDIENCE = os.getenv("KEYCLOAK_AUDIENCE", "medagentx-client")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token", auto_error=False)
+TEST_TOKEN = None
 
 
 def verify_token(token: str) -> Dict[str, Any]:
@@ -65,8 +67,8 @@ def verify_token(token: str) -> Dict[str, Any]:
         claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return claims
     except jwt.PyJWTError as e:
-        # Support a mock token for easier automated testing
-        if token == "mock-valid-token":
+        # Support a dynamic test token injected during automated testing
+        if TEST_TOKEN and token == TEST_TOKEN:
             return {"sub": "test_user", "role": "doctor"}
         raise HTTPException(
             status_code=401,
@@ -84,6 +86,48 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dic
             headers={"WWW-Authenticate": "Bearer"},
         )
     return verify_token(token)
+
+# Cached verification status for the full event store
+_full_chain_valid = True
+
+
+async def verify_chain_background_loop():
+    """
+    Background task to run full event store verification every 5 minutes.
+    
+    This keeps the health check endpoint responsive while ensuring retroactive
+    event database tampering is eventually detected.
+    """
+    global _full_chain_valid
+    from medagentx.core.event_store import EventStore
+    from datetime import datetime
+    while True:
+        try:
+            store = EventStore()
+            broken_id = store.verify_chain()  # Full walk
+            if broken_id:
+                _full_chain_valid = False
+                logger.critical(f"BACKGROUND TASK: Event store tampering detected! Broken ID: {broken_id}")
+            else:
+                _full_chain_valid = True
+                logger.info("BACKGROUND TASK: Full event store verification succeeded.")
+        except Exception as e:
+            logger.exception("BACKGROUND TASK: Error in verify_chain background loop")
+            # Log distinct verification_loop_error event to governance audit log if initialized
+            if _platform_state.get("governance"):
+                try:
+                    _platform_state["governance"].audit_log.append({
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "event": "verification_loop_error",
+                        "error": str(e),
+                        "detail": "Background chain verification loop encountered an exception."
+                    })
+                except Exception:
+                    pass
+            
+        # Run every 5 minutes
+        await asyncio.sleep(300)
+
 
 # Global state for API (initialized lazily)
 _platform_state = {
@@ -211,6 +255,12 @@ async def otel_middleware(request, call_next):
         return response
 
 
+@app.on_event("startup")
+async def startup_event():
+    # Start background verification loop to verify full event store chain every 5 minutes
+    asyncio.create_task(verify_chain_background_loop())
+
+
 # Request/Response Models
 class TaskRequest(BaseModel):
     agent_id: str
@@ -264,24 +314,56 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint. Also verifies the cryptographic event store chain integrity."""
+    """
+    Health check endpoint.
+    
+    Verifies the integrity of the event store chain.
+    To avoid excessive disk I/O latency on repeated health queries, we limit the
+    synchronous walk to the last 100 events, while a background task periodically
+    validates the full historic chain.
+    """
     from medagentx.core.event_store import EventStore
     store = EventStore()
-    broken_id = store.verify_chain()
+    
+    # 1. Fast path: Verify only the last 100 events per health check query
+    broken_id = store.verify_chain(limit=100)
+    
+    # 2. Check full chain status from cached background verification
+    is_full_chain_valid = _full_chain_valid
     
     status = "healthy"
     detail = "All systems operational. Event store chain verified."
+    chain_valid = True
     
     if broken_id:
         status = "degraded"
         detail = f"EVENT STORE TAMPERING DETECTED: broken link at event ID {broken_id}"
         logger.critical(detail)
+        chain_valid = False
+    elif not is_full_chain_valid:
+        status = "degraded"
+        detail = "EVENT STORE TAMPERING DETECTED: background verification failed on full chain"
+        logger.critical(detail)
+        chain_valid = False
+        
+    if not chain_valid:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "reason": "chain_integrity_failure",
+                "detail": detail,
+                "platform": "MedAgentX",
+                "chain_valid": False
+            }
+        )
         
     return {
         "status": status,
         "platform": "MedAgentX",
         "detail": detail,
-        "chain_valid": broken_id is None
+        "chain_valid": True
     }
 
 
@@ -362,16 +444,48 @@ async def create_agent(request: AgentCreateRequest, current_user: Dict[str, Any]
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/agents/{agent_id}/execute")
-async def execute_agent_task(agent_id: str, request: TaskRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Execute a task with an agent."""
+async def execute_agent_with_governance(agent_id: str, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Execute an agent task routing it through the identical governance pipeline."""
     platform = get_platform()
     agent = platform["agents"].get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+        
+    from medagentx.core.types import AgentExecutionContext
     
+    # Instantiate internal context structurally excluding any responsibility fields
+    ctx = AgentExecutionContext(**(context or {}))
+
+    # Ensure raw_symptoms / symptoms are set in context for symptom_analyzer to process correctly!
+    if agent_id == "symptom_analyzer" and not ctx.raw_symptoms:
+        ctx.raw_symptoms = task
+
+    # 1. Run agent (this invokes LLM Guard input scan internally)
+    result = await agent.run(task, context=ctx)
+    
+    # 2. Output Guardrails Validation
+    from medagentx.core.output_guardrails import validate_agent_output
+    result = validate_agent_output(result)
+    
+    # 3. CRF Tagging
+    from medagentx.core.crf import ClinicalResponsibilityFirewall
+    crf = ClinicalResponsibilityFirewall()
+    if isinstance(result, dict):
+        result = crf.enforce(result, source="agent", source_id=agent_id)
+    
+    # 4. Governance Output Check
+    governance_engine = platform.get("governance_engine")
+    if governance_engine:
+        governance_engine.enforce(result)
+        
+    return result
+
+
+@app.post("/api/agents/{agent_id}/execute")
+async def execute_agent_task(agent_id: str, request: TaskRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Execute a task with an agent routing it through the governance pipeline."""
     try:
-        result = await agent.run(request.task, context=request.context)
+        result = await execute_agent_with_governance(agent_id, request.task, request.context)
         
         return {
             "agent_id": agent_id,
@@ -389,15 +503,10 @@ async def execute_agent_task(agent_id: str, request: TaskRequest, current_user: 
 
 @app.post("/api/analyze-symptoms")
 async def analyze_symptoms(request: SymptomAnalysisRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Analyze symptoms using SymptomAnalyzerAgent."""
-    platform = get_platform()
-    agent = platform["agents"].get("symptom_analyzer")
-    
-    if not agent:
-        raise HTTPException(status_code=500, detail="Symptom analyzer agent not available")
-    
+    """Analyze symptoms using SymptomAnalyzerAgent routing it through the governance pipeline."""
     try:
-        result = await agent.run(request.symptoms, context={"patient_context": request.patient_context})
+        ctx = request.patient_context or {}
+        result = await execute_agent_with_governance("symptom_analyzer", request.symptoms, ctx)
         
         return {
             "status": "success",
@@ -462,6 +571,45 @@ async def list_workflows(current_user: Dict[str, Any] = Depends(get_current_user
             }
         ]
     }
+
+
+import os
+
+if os.environ.get("EVAL_MODE") == "true":
+    class AnalyzeRequest(BaseModel):
+        clinical_context: Optional[str] = None
+        user_input: str
+        scenario_id: Optional[str] = None
+        mode: Optional[str] = None
+
+
+    @app.post("/api/v1/analyze")
+    async def analyze_v1(request: AnalyzeRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+        """Legacy/evaluation analysis route."""
+        try:
+            ctx = {"patient_context": request.clinical_context}
+            result = await execute_agent_with_governance("symptom_analyzer", request.user_input, ctx)
+            return {
+                "status": "success",
+                "output": result.get("output"),
+                "confidence": result.get("confidence"),
+                "reasoning": result.get("reasoning"),
+                "requires_human_approval": result.get("requires_human_approval", True),
+            }
+        except Exception as e:
+            logger.error(f"Error in v1 analyze: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+    @app.post("/api/agents/{agent_id}/reset")
+    async def reset_agent(agent_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+        """Reset an agent's state/message history."""
+        platform = get_platform()
+        agent = platform["agents"].get(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+        agent.reset()
+        return {"status": "reset", "agent_id": agent_id}
 
 
 if __name__ == "__main__":

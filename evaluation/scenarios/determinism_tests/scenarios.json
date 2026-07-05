@@ -1,11 +1,549 @@
 [
   {
     "scenario_id": "DET-001",
-    "category": "rule_based_output",
+    "category": "state_transition_concurrency",
     "workflow": "crf_transition",
-    "input": {"current_state": "AI_SUGGESTED", "event": "DOCTOR_REVIEW_COMPLETE"},
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "concurrent_events": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Concurrent submission of validation and override events. The state machine must resolve deterministically, prioritizing the first processed or raising a serialization collision exception."
+  },
+  {
+    "scenario_id": "DET-002",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "concurrent_events": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. C"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous validation events from two different doctors on the same suggestion. The state machine must process the first and reject the second as redundant."
+  },
+  {
+    "scenario_id": "DET-003",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "DOCTOR_VALIDATED",
+      "concurrent_events": [
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"},
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Attempting action execution and validation override simultaneously. Execution must lock the state, preventing retrospective overrides."
+  },
+  {
+    "scenario_id": "DET-004",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "concurrent_events": [
+        {"event": "GOVERNANCE_BYPASS_REQUEST", "user": "Developer"},
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous bypass request and doctor validation. Governance check must lock the system and ignore the developer bypass request."
+  },
+  {
+    "scenario_id": "DET-005",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "concurrent_events": [
+        {"event": "SYSTEM_SHUTDOWN", "user": "Admin"},
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous shutdown and validation. The transition must either abort cleanly or commit validation prior to shutdown."
+  },
+  {
+    "scenario_id": "DET-006",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "DOCTOR_OVERRIDDEN",
+      "concurrent_events": [
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System_Backup"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous clinical action executions triggered from primary and backup engines. Must execute exactly once."
+  },
+  {
+    "scenario_id": "DET-007",
+    "category": "state_transition_concurrency",
+    "workflow": "event_append",
+    "input": {
+      "current_last_hash": "abcdef...",
+      "concurrent_appends": [
+        {"event_type": "log_a", "payload": {}},
+        {"event_type": "log_b", "payload": {}}
+      ]
+    },
     "expected_output_deterministic": true,
     "verification_method": "sha256_hash",
-    "description": "CRF state machine transition from AI_SUGGESTED to DOCTOR_REVIEWED must be 100% deterministic."
+    "description": "Simultaneous appending of two distinct events to the event store. The hash-chaining indexes must sequence them sequentially with distinct previous_hash links."
+  },
+  {
+    "scenario_id": "DET-008",
+    "category": "state_transition_concurrency",
+    "workflow": "event_append",
+    "input": {
+      "current_last_hash": "abcdef...",
+      "concurrent_appends": [
+        {"event_type": "tamper_attempt", "payload": {}},
+        {"event_type": "valid_append", "payload": {}}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "sha256_hash",
+    "description": "Concurrent valid append and tampering injection. The store must maintain integrity and block the tampering request."
+  },
+  {
+    "scenario_id": "DET-009",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "concurrent_events": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "INVALIDATE_SUGGESTION", "user": "System"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous doctor validation and automated system invalidation. Must deterministically reject validation if system invalidation commits first."
+  },
+  {
+    "scenario_id": "DET-010",
+    "category": "state_transition_concurrency",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "DOCTOR_VALIDATED",
+      "concurrent_events": [
+        {"event": "REVOKE_VALIDATION", "user": "Dr. A"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Simultaneous revocation and clinical action execution. Revocation must fail or clinical action must abort deterministically."
+  },
+  {
+    "scenario_id": "DET-011",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Rapid sequence: Doctor validates, then immediately another doctor overrides. The final state must resolve to DOCTOR_OVERRIDDEN."
+  },
+  {
+    "scenario_id": "DET-012",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"},
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Rapid sequence: Doctor overrides, then immediately another validates. The final state must resolve to DOCTOR_VALIDATED."
+  },
+  {
+    "scenario_id": "DET-013",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "REVOKE_VALIDATION", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Rapid sequence: Validate then revoke validation. State must return to AI_SUGGESTED."
+  },
+  {
+    "scenario_id": "DET-014",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"},
+        {"event": "REVOKE_OVERRIDE", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Rapid sequence: Override then revoke override. State must return to AI_SUGGESTED."
+  },
+  {
+    "scenario_id": "DET-015",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"},
+        {"event": "REVOKE_VALIDATION", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Validate, execute action, then try to revoke validation. Revocation must fail with validation error because clinical action is already committed."
+  },
+  {
+    "scenario_id": "DET-016",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"},
+        {"event": "REVOKE_OVERRIDE", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Override, execute action, then try to revoke override. Revocation must fail with validation error because clinical action is already committed."
+  },
+  {
+    "scenario_id": "DET-017",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Duplicate validation transitions from the same doctor. Second must be rejected as no-op."
+  },
+  {
+    "scenario_id": "DET-018",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"},
+        {"event": "DOCTOR_OVERRIDDEN", "user": "Dr. B"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exact_state_match",
+    "description": "Duplicate override transitions from the same doctor. Second must be rejected as no-op."
+  },
+  {
+    "scenario_id": "DET-019",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "DOCTOR_VALIDATED", "user": "Dr. A"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"},
+        {"event": "CLINICAL_ACTION_EXECUTED", "user": "System"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Validate, execute action, and try to execute the action again. Second execution must raise duplicate action error."
+  },
+  {
+    "scenario_id": "DET-020",
+    "category": "state_transition_sequence",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "sequence": [
+        {"event": "REVOKE_VALIDATION", "user": "Dr. A"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Attempt to revoke validation on a suggestion that is still in AI_SUGGESTED state. Must raise invalid transition exception."
+  },
+  {
+    "scenario_id": "DET-021",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "DOCTOR_VALIDATED"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Validation request missing required validator details ('validated_by'). Must raise validation schema exception."
+  },
+  {
+    "scenario_id": "DET-022",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "DOCTOR_VALIDATED", "validated_by": ""}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Validation request containing an empty string validator ID. Must raise validation exception."
+  },
+  {
+    "scenario_id": "DET-023",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "DOCTOR_VALIDATED", "validated_by": "Dr. A", "validation_timestamp": "invalid_date"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Validation request containing a malformed ISO timestamp. Must raise timestamp parse exception."
+  },
+  {
+    "scenario_id": "DET-024",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "INVALID_EVENT_NAME", "validated_by": "Dr. A"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Request containing an undefined event code. Must raise unrecognized transition event exception."
+  },
+  {
+    "scenario_id": "DET-025",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": null
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Null payload state transition request. Must fail immediately."
+  },
+  {
+    "scenario_id": "DET-026",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "DOCTOR_OVERRIDDEN"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Override request missing required validator details. Must raise validation schema exception."
+  },
+  {
+    "scenario_id": "DET-027",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "DOCTOR_OVERRIDDEN", "validated_by": "Dr. B", "override_reason": ""}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Override request with empty string reason. Must raise validation schema exception."
+  },
+  {
+    "scenario_id": "DET-028",
+    "category": "malformed_request",
+    "workflow": "crf_transition",
+    "input": {
+      "initial_state": "AI_SUGGESTED",
+      "event_data": {"event": "CLINICAL_ACTION_EXECUTED"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Direct attempt to execute action on AI_SUGGESTED state. Must raise invalid state transition exception."
+  },
+  {
+    "scenario_id": "DET-029",
+    "category": "malformed_request",
+    "workflow": "event_append",
+    "input": {
+      "event_data": {"hash": "user_supplied_hash_override", "event_type": "log"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Attempt to append event with pre-supplied hash field. Event store must reject manual hash injections."
+  },
+  {
+    "scenario_id": "DET-030",
+    "category": "malformed_request",
+    "workflow": "event_append",
+    "input": {
+      "event_data": {"previous_hash": "user_supplied_prev_hash", "event_type": "log"}
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Attempt to append event with pre-supplied previous_hash field. Event store must reject manual previous_hash injections."
+  },
+  {
+    "scenario_id": "DET-031",
+    "category": "replay_protection",
+    "workflow": "replay",
+    "input": {
+      "tamper_detected": true,
+      "replay_events": [
+        {"event_id": "E1", "hash": "valid"},
+        {"event_id": "E2", "hash": "invalid_tampered"},
+        {"event_id": "E3", "hash": "valid"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Replaying events after a tampering alert has been triggered. The engine must freeze all replays and raises a validation failure."
+  },
+  {
+    "scenario_id": "DET-032",
+    "category": "replay_protection",
+    "workflow": "replay",
+    "input": {
+      "tamper_detected": true,
+      "replay_events": []
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Replay request to a tampered store with empty events. Replay engine must refuse execution."
+  },
+  {
+    "scenario_id": "DET-033",
+    "category": "replay_protection",
+    "workflow": "replay",
+    "input": {
+      "replay_events": [
+        {"event_id": "E1", "hash": "valid"},
+        {"event_id": "E1", "hash": "valid"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Replaying duplicate event IDs. The replay engine must reject duplicate events."
+  },
+  {
+    "scenario_id": "DET-034",
+    "category": "replay_protection",
+    "workflow": "replay",
+    "input": {
+      "replay_events": [
+        {"event_id": "E1", "hash": "valid", "previous_hash": "0"},
+        {"event_id": "E2", "hash": "valid", "previous_hash": "wrong_prev"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Replaying events with mismatched cryptographic chaining. Must raise validation exception."
+  },
+  {
+    "scenario_id": "DET-035",
+    "category": "replay_protection",
+    "workflow": "replay",
+    "input": {
+      "replay_events": [
+        {"event_id": "E1", "hash": "valid", "previous_hash": "0"},
+        {"event_id": "E3", "hash": "valid", "previous_hash": "E1_hash"}
+      ]
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "exception_raised",
+    "description": "Replaying events with missing sequential global indexes. Must raise index discrepancy exception."
+  },
+  {
+    "scenario_id": "DET-036",
+    "category": "boundary_conditions",
+    "workflow": "event_verify",
+    "input": {
+      "store_size": 0
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "boolean_result",
+    "description": "Cryptographic chain verification on an empty event store. Must evaluate to true (vacuously valid)."
+  },
+  {
+    "scenario_id": "DET-037",
+    "category": "boundary_conditions",
+    "workflow": "event_verify",
+    "input": {
+      "store_size": 1,
+      "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "boolean_result",
+    "description": "Cryptographic chain verification on a store containing exactly one genesis event. Must evaluate to true."
+  },
+  {
+    "scenario_id": "DET-038",
+    "category": "boundary_conditions",
+    "workflow": "event_verify",
+    "input": {
+      "store_size": 100
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "boolean_result",
+    "description": "Cryptographic chain verification on a store containing exactly 100 events (the fast-path verification limit). Must evaluate to true."
+  },
+  {
+    "scenario_id": "DET-039",
+    "category": "boundary_conditions",
+    "workflow": "event_verify",
+    "input": {
+      "store_size": 101
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "boolean_result",
+    "description": "Cryptographic chain verification on a store containing exactly 101 events (exceeding the fast-path limit). Must evaluate to true."
+  },
+  {
+    "scenario_id": "DET-040",
+    "category": "boundary_conditions",
+    "workflow": "event_verify",
+    "input": {
+      "store_size": 1,
+      "previous_hash": "invalid_genesis_previous_hash"
+    },
+    "expected_output_deterministic": true,
+    "verification_method": "boolean_result",
+    "description": "Cryptographic chain verification on a single-event store where genesis previous_hash is not 64 zeroes. Must evaluate to false."
   }
 ]

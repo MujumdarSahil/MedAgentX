@@ -225,18 +225,44 @@ class EventStore:
         
         return output_path
     
-    def verify_chain(self) -> Optional[str]:
+    def verify_chain(self, limit: Optional[int] = None) -> Optional[str]:
         """
         Verify the integrity of the event chain.
         
         Walks the event store using the global chain index, recomputes hashes,
         and returns the first broken link event_id, if any.
         Returns None if the chain is fully valid.
+        
+        Args:
+            limit: If set, only verify the last N events in the chain.
         """
         import hashlib
         
+        if not self._global_chain:
+            return None
+            
+        start_idx = 0
         expected_previous_hash = "0" * 64
-        for event_id in self._global_chain:
+        
+        if limit is not None and len(self._global_chain) > limit:
+            start_idx = len(self._global_chain) - limit
+            # Fetch preceding event's hash to initialize expected_previous_hash
+            prev_event_id = self._global_chain[start_idx - 1]
+            prev_event_file = self.store_path / f"{prev_event_id}.json"
+            if prev_event_file.exists():
+                try:
+                    with open(prev_event_file, "r") as f:
+                        prev_event = json.load(f)
+                        expected_previous_hash = prev_event.get("hash", "0" * 64)
+                except Exception as e:
+                    logger.error(f"Failed to load preceding event {prev_event_id} for verification: {e}")
+                    return prev_event_id
+            else:
+                logger.error(f"Preceding event file {prev_event_id}.json missing from chain")
+                return prev_event_id
+        
+        for i in range(start_idx, len(self._global_chain)):
+            event_id = self._global_chain[i]
             event_file = self.store_path / f"{event_id}.json"
             if not event_file.exists():
                 logger.error(f"Event file {event_id}.json missing from chain")

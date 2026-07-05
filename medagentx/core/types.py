@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class MessageRole(str, Enum):
@@ -180,4 +180,60 @@ class WorkflowTrace:
     workflow_id: str
     events: List[AgentTrace] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
+class AgentExecutionContext(BaseModel):
+    """Agent execution context validating allowed fields and structurally excluding any responsibility fields."""
+    raw_symptoms: Optional[str] = None
+    symptoms: List[str] = Field(default_factory=list)
+    conditions: List[Any] = Field(default_factory=list)
+    patient_context: Optional[Dict[str, Any]] = None
+    patient_data: Optional[Dict[str, Any]] = None
+    knowledge_context: Optional[List[Any]] = None
+    additional_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_responsibility_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        
+        def _recursive_sanitize(item: Any) -> Any:
+            if isinstance(item, dict):
+                cleaned = {}
+                for k, v in item.items():
+                    # Structurally exclude any key containing "respons" (case-insensitive) to prevent any responsibility forgery
+                    if "respons" in k.lower():
+                        continue
+                    cleaned[k] = _recursive_sanitize(v)
+                return cleaned
+            elif isinstance(item, list):
+                return [_recursive_sanitize(x) for x in item]
+            return item
+            
+        return _recursive_sanitize(data)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Provide dictionary-like get access for backwards compatibility."""
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """Provide dictionary-like item access."""
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def __contains__(self, key: str) -> bool:
+        """Provide dictionary-like contains check."""
+        return hasattr(self, key)
+
+    def keys(self):
+        """Provide keys for dictionary alignment."""
+        return self.model_fields.keys()
+
+    def items(self):
+        """Provide items for dictionary alignment."""
+        return {k: getattr(self, k) for k in self.model_fields.keys()}.items()
 

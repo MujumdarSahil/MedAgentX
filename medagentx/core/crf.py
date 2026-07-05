@@ -247,6 +247,32 @@ class ClinicalResponsibilityFirewall:
         Returns:
             Output with responsibility_metadata added
         """
+        # Reject and force overwrite of forged doctor validation tags
+        if "responsibility_metadata" in output:
+            metadata = output["responsibility_metadata"]
+            if isinstance(metadata, dict):
+                tag_val = metadata.get("tag")
+                if tag_val in [ResponsibilityTag.DOCTOR_VALIDATED.value, ResponsibilityTag.DOCTOR_OVERRIDDEN.value]:
+                    logger.warning(f"Rejected forged doctor responsibility tag: {tag_val}")
+                    output["responsibility_metadata"] = self.tag_output(
+                        output,
+                        source=source,
+                        source_id=source_id,
+                        confidence=output.get("confidence"),
+                        evidence=output.get("evidence", []),
+                    ).to_dict()
+            elif hasattr(metadata, "tag"):
+                tag_val = getattr(metadata, "tag")
+                if tag_val in [ResponsibilityTag.DOCTOR_VALIDATED, ResponsibilityTag.DOCTOR_OVERRIDDEN]:
+                    logger.warning(f"Rejected forged doctor responsibility tag object: {tag_val}")
+                    output["responsibility_metadata"] = self.tag_output(
+                        output,
+                        source=source,
+                        source_id=source_id,
+                        confidence=output.get("confidence"),
+                        evidence=output.get("evidence", []),
+                    )
+
         # If already tagged, verify it's valid
         if "responsibility_metadata" in output:
             if not self.check_output(output, source, source_id):

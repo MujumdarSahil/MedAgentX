@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 from abc import ABC
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from medagentx.core.types import (
     AgentConfig,
@@ -11,6 +11,7 @@ from medagentx.core.types import (
     MessageRole,
     Recommendation,
     AgentCapabilities,
+    AgentExecutionContext,
 )
 from medagentx.governance.engine import GovernanceException
 
@@ -90,9 +91,14 @@ class BaseAgent(ABC):
     async def reflect(self, action_result: Dict[str, Any]) -> Dict[str, Any]:
         return {"reflection": "Human approval required before use.", "requires_human_approval": True}
 
-    async def run(self, task: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def run(self, task: str, context: Optional[Union[Dict[str, Any], AgentExecutionContext]] = None) -> Dict[str, Any]:
         from medagentx.core.telemetry import tracer
         
+        if isinstance(context, dict):
+            context = AgentExecutionContext(**context)
+        elif context is None:
+            context = AgentExecutionContext()
+
         # Log structured starting execution
         logger.info("Agent run execution started", extra={"agent_id": self.config.agent_id, "task": task})
 
@@ -115,8 +121,9 @@ class BaseAgent(ABC):
             self.state.status = AgentStatus.THINKING
             self.state.current_task = task
             self._last_llm_usage = None  # Reset LLM usage tracking
+            metadata_dict = context.model_dump(exclude_none=True) if isinstance(context, AgentExecutionContext) else (context or {})
             self.state.messages.append(
-                AgentMessage(role=MessageRole.USER, content=task, metadata=context or {})
+                AgentMessage(role=MessageRole.USER, content=task, metadata=metadata_dict)
             )
 
             plan = await self.plan(task, context)

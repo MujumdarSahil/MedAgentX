@@ -109,3 +109,34 @@ def test_tampering_previous_hash_detected(temp_event_store):
         json.dump(event, f, indent=2)
 
     assert store.verify_chain() == eid2
+
+
+def test_verify_chain_with_limit(temp_event_store):
+    """
+    Test that calling verify_chain with a limit checks only the last N events.
+    If tampering happens outside the limit range, verify_chain(limit=N) passes,
+    but verify_chain() without limit fails.
+    """
+    store = temp_event_store
+
+    eid1 = store.append_event("exec_1", "agent_output", "agent", "agent_1", {"val": 1})
+    eid2 = store.append_event("exec_1", "agent_output", "agent", "agent_1", {"val": 2})
+    eid3 = store.append_event("exec_1", "agent_output", "agent", "agent_1", {"val": 3})
+
+    assert store.verify_chain(limit=2) is None
+    assert store.verify_chain() is None
+
+    # Tamper with eid1 (the very first event)
+    file_path = Path(store.store_path) / f"{eid1}.json"
+    with open(file_path, "r") as f:
+        event = json.load(f)
+    event["data"]["val"] = 999
+    with open(file_path, "w") as f:
+        json.dump(event, f, indent=2)
+
+    # Verifying only the last 2 events (eid2 and eid3) should pass
+    assert store.verify_chain(limit=2) is None
+
+    # Full chain verification should fail
+    assert store.verify_chain() is not None
+
